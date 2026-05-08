@@ -1,0 +1,1318 @@
+"""DECI Automation — EYouth coordination WhatsApp Messenger."""
+import customtkinter as ctk
+import openpyxl, os, random, datetime, threading, tkinter as tk
+from tkinter import filedialog, messagebox
+from app_config import COLORS as C, load_templates, save_templates
+from ui_components import StatusDot, StyledButton, SidebarButton
+from engine import MessageEngine
+
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+STATUS_NOT_SENT = "Not Sent"
+STATUS_SENDING  = "Sending…"
+STATUS_SENT     = "Sent"
+STATUS_FAILED   = "Failed"
+STATUS_ACK      = "Acknowledged"
+STATUS_CONF     = "Confirmed"
+
+STATUS_COLORS = {
+    STATUS_NOT_SENT: C["status_red"],
+    STATUS_SENDING:  C["status_yellow"],
+    STATUS_SENT:     C["status_yellow"],
+    STATUS_FAILED:   C["danger"],
+    STATUS_ACK:      C["accent_cyan"],
+    STATUS_CONF:     C["status_green"],
+}
+
+def normalize_phone(phone_str):
+    if not phone_str:
+        return ""
+    p = str(phone_str).strip()
+    
+    # Remove common Excel formatting
+    if p.endswith(".00"): p = p[:-3]
+    elif p.endswith(".0"): p = p[:-2]
+        
+    # Keep only digits and '+'
+    p = "".join(c for c in p if c.isdigit() or c == '+')
+    
+    if not p: return ""
+    if p.startswith("+"): return p
+    
+    # Handle Egyptian numbers (10 or 11 digits starting with 01 or 1)
+    if len(p) == 11 and p.startswith("0"):
+        return "+20" + p[1:]
+    if len(p) == 10 and p.startswith(("10", "11", "12", "15")):
+        return "+20" + p
+    
+    # Handle numbers starting with 20 (country code without +)
+    if p.startswith("20") and len(p) >= 11:
+        return "+" + p
+        
+    # Handle 00 prefix
+    if p.startswith("00"):
+        return "+" + p[2:]
+        
+    # Default: Add +20 for Egypt if it looks like a local number
+    if len(p) in (10, 11) and not p.startswith("+"):
+        clean = p[1:] if p.startswith("0") else p
+        return "+20" + clean
+
+    # Generic fallback
+    return "+" + p if not p.startswith("+") else p
+
+
+class TourGuide(ctk.CTkToplevel):
+    def __init__(self, parent, steps):
+        super().__init__(parent)
+        self.parent = parent
+        self.steps = steps
+        self.current_step = 0
+        
+        self.title("Assistant Guide")
+        self.geometry("400x250")
+        self.attributes("-topmost", True)
+        self.configure(fg_color=C["bg_card"])
+        self.overrideredirect(True) # Removes window borders for a clean look
+
+        # UI Elements
+        self.title_lbl = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=18, weight="bold"), text_color=C["accent_cyan"])
+        self.title_lbl.pack(pady=(20, 5))
+        
+        self.msg_lbl = ctk.CTkLabel(self, text="", wraplength=350, font=ctk.CTkFont(size=13))
+        self.msg_lbl.pack(pady=10, padx=20)
+
+        self.btn_f = ctk.CTkFrame(self, fg_color="transparent")
+        self.btn_f.pack(side="bottom", fill="x", pady=20)
+        
+        self.next_btn = StyledButton(self.btn_f, text="Next →", command=self.next_step, width=100)
+        self.next_btn.pack(side="right", padx=20)
+        
+        self.step_lbl = ctk.CTkLabel(self.btn_f, text="", font=ctk.CTkFont(size=11), text_color=C["text_muted"])
+        self.step_lbl.pack(side="left", padx=20)
+        
+        self.show_step()
+
+    def show_step(self):
+        step = self.steps[self.current_step]
+        self.title_lbl.configure(text=step["title"])
+        self.msg_lbl.configure(text=step["msg"])
+        self.step_lbl.configure(text=f"Step {self.current_step + 1} of {len(self.steps)}")
+        
+        if self.current_step == len(self.steps) - 1:
+            self.next_btn.configure(text="Finish 🎉")
+
+        # --- THE "POINTING" LOGIC ---
+        # Reset previous widget if any
+        if self.current_step > 0:
+            prev_widget = self.steps[self.current_step-1].get("widget")
+            if prev_widget:
+                prev_widget.configure(border_width=1, border_color=C["border"])
+
+        # Highlight current widget
+        target = step.get("widget")
+        if target:
+            # Handle list of widgets (like top bar filters)
+            targets = target if isinstance(target, list) else [target]
+            for t in targets:
+                t.configure(border_width=3, border_color=C["accent_cyan"])
+            
+            # Contextual actions
+            action = step.get("action")
+            if action:
+                action()
+
+            # Center the tour window near the widget
+            # We use the first target if it's a list
+            main_target = targets[0]
+            x = main_target.winfo_rootx() + 50
+            y = main_target.winfo_rooty() + 50
+            
+            # Keep tour on screen
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            if x + 400 > sw: x = sw - 450
+            if y + 250 > sh: y = sh - 300
+            
+            self.geometry(f"+{x}+{y}")
+
+    def next_step(self):
+        self.current_step += 1
+        if self.current_step < len(self.steps):
+            self.show_step()
+        else:
+            # Clean up highlight on exit
+            last_target = self.steps[-1].get("widget")
+            if last_target:
+                targets = last_target if isinstance(last_target, list) else [last_target]
+                for t in targets:
+                    t.configure(border_width=1, border_color=C["border"])
+            
+            # Show final message if any
+            if "final_msg" in self.steps[-1]:
+                messagebox.showinfo("Tour Complete", self.steps[-1]["final_msg"])
+            
+            self.destroy()
+
+
+class App(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("DECI Automation — EYouth coordination")
+        self.geometry("1280x780")
+        self.minsize(1100, 650)
+        self.configure(fg_color=C["bg_dark"])
+
+        self.templates = load_templates()
+        self.engine = MessageEngine()
+        self.all_data = self._load_all_data()
+        
+        for slot in self.all_data:
+            for row in self.all_data[slot]:
+                row["phone"] = normalize_phone(row.get("phone", ""))
+
+        for slot_name, rows in self.all_data.items():
+            for row in rows:
+                if "day" not in row:
+                    if " - " in slot_name:
+                        parts = slot_name.split(" - ", 1)
+                        row["day"] = parts[0]
+                    else:
+                        row["day"] = "Friday"
+
+        for s in ["9:00 AM", "2:00 PM", "5:00 PM", "General"]:
+            if s in self.all_data and not self.all_data[s]:
+                del self.all_data[s]
+
+        slots = list(self.all_data.keys())
+        self.current_slot = slots[0] if slots else "General"
+        if self.current_slot not in self.all_data:
+            self.all_data[self.current_slot] = []
+            
+        self.rows = self.all_data[self.current_slot]
+        self.row_widgets = []
+        self.last_selected_index = None # Track selection for preview
+
+        self._build_sidebar()
+        self._build_main()
+        self._update_slot_menu()
+        self._render_table()
+
+    def _animate_logo(self):
+        self._logo_anim_step = getattr(self, "_logo_anim_step", 0) + 1
+        i = self._logo_anim_step % 4
+
+        # Bright Neon Palette
+        neon_cyan = "#00f6ff"
+        neon_purple = "#b026ff"
+        neon_pink = "#ff007f"
+        neon_blue = "#0078ff"
+
+        icon_colors = [neon_cyan, neon_purple, neon_pink, neon_blue]
+        border_colors = [neon_blue, neon_cyan, neon_purple, neon_pink]
+
+        try:
+            self.logo_icon.configure(text_color=icon_colors[i])
+            self.logo_title.configure(text_color=icon_colors[(i+1)%4])
+            
+            # Neon glowing border effect
+            self.logo_frame.configure(border_color=border_colors[i], border_width=2)
+
+            self.after(800, self._animate_logo)
+        except Exception:
+            pass
+
+    # ── Sidebar ──────────────────────────────────────────────
+    def _build_sidebar(self):
+        sb = ctk.CTkScrollableFrame(self, width=280, fg_color=C["bg_sidebar"], corner_radius=0)
+        sb.pack(side="left", fill="y")
+
+        # Logo area - reduced padding
+        self.logo_frame = ctk.CTkFrame(
+            sb,
+            fg_color=C["bg_card"],
+            corner_radius=18,
+            border_width=2,
+            border_color=C["border"]
+        )
+        self.logo_frame.pack(fill="x", padx=14, pady=(10, 10))
+
+        self.logo_inner = ctk.CTkFrame(self.logo_frame, fg_color="transparent")
+        self.logo_inner.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkFrame(self.logo_inner, height=2, fg_color=C["accent_blue"]).pack(fill="x", pady=(0, 8))
+
+        self.logo_icon = ctk.CTkLabel(
+            self.logo_inner,
+            text="⚡",
+            font=ctk.CTkFont(size=32, weight="bold"),
+            text_color=C["accent_cyan"]
+        )
+        self.logo_icon.pack(pady=(2, 2))
+
+        self.logo_title = ctk.CTkLabel(
+            self.logo_inner,
+            text="DECI Automation",
+            font=ctk.CTkFont(size=21, weight="bold")
+        )
+        self.logo_title.pack()
+
+        self.logo_subtitle = ctk.CTkLabel(
+            self.logo_inner,
+            text="EYouth Coordination by Osama Elfeky",
+            font=ctk.CTkFont(size=12),
+            text_color=C["text_secondary"]
+        )
+        self.logo_subtitle.pack(pady=(2, 2))
+
+
+
+        ctk.CTkFrame(self.logo_inner, height=2, fg_color=C["accent_purple"]).pack(fill="x", pady=(8, 0))
+
+        self._animate_logo()
+
+        ctk.CTkFrame(sb, height=1, fg_color=C["border"]).pack(fill="x", padx=16, pady=4)
+
+        # IMPROVED PLACEHOLDER SECTION
+        ctk.CTkLabel(sb, text="TEMPLATE TOOLS", font=ctk.CTkFont(size=10, weight="bold"),
+                      text_color=C["text_muted"]).pack(anchor="w", padx=20, pady=(8, 0))
+
+        # Template Selector
+        self.tpl_var = ctk.StringVar(value=list(self.templates.keys())[0] if self.templates else "")
+        self.tpl_menu = ctk.CTkOptionMenu(sb, variable=self.tpl_var,
+            values=list(self.templates.keys()), width=240,
+            fg_color=C["bg_input"], button_color=C["accent_blue"],
+            button_hover_color=C["accent_purple"],
+            command=self._on_template_select)
+        self.tpl_menu.pack(padx=10, pady=(5, 5))
+        
+        # Insert Placeholder - Moved above editor for better flow
+        self.ph_var = ctk.StringVar(value="✨ Insert Variable...")
+        self.ph_menu = ctk.CTkOptionMenu(sb, variable=self.ph_var, width=240,
+            values=["{name}", "{group_code}", "{time}", "{day}"],
+            fg_color=C["bg_input"], button_color=C["accent_cyan"], 
+            text_color=C["text_primary"], command=self._insert_placeholder)
+        self.ph_menu.pack(padx=10, pady=(5, 5))
+
+        self.tpl_editor = ctk.CTkTextbox(sb, height=150, fg_color=C["bg_input"],
+            font=ctk.CTkFont(size=13), text_color=C["text_primary"],
+            border_color=C["border"], border_width=1, corner_radius=8)
+        self.tpl_editor.pack(padx=10, pady=2, fill="x")
+        self.tpl_editor.bind("<KeyRelease>", lambda e: self._update_preview())
+
+        # Action Buttons - Re-added Delete Template
+        btn_frame = ctk.CTkFrame(sb, fg_color="transparent")
+        btn_frame.pack(padx=10, pady=(4, 0), fill="x")
+        StyledButton(btn_frame, text="💾 Save", width=70, command=self._save_current_tpl).pack(side="left", padx=2)
+        StyledButton(btn_frame, text="➕ New", width=70, color=C["accent_purple"], command=self._new_template).pack(side="left", padx=2)
+        StyledButton(btn_frame, text="🗑️", width=40, color=C["danger"], command=self._delete_template).pack(side="left", padx=2)
+        StyledButton(btn_frame, text="😀", width=40, color=C["accent_cyan"],
+                     hover=C["accent_blue"], command=self._show_emoji_picker).pack(side="left", padx=2)
+
+        # LIVE PREVIEW - Not Italic
+        ctk.CTkLabel(sb, text="LIVE PREVIEW", font=ctk.CTkFont(size=10, weight="bold"),
+                      text_color=C["text_muted"]).pack(anchor="w", padx=20, pady=(12, 2))
+        
+        self.preview_box = ctk.CTkTextbox(sb, height=100, fg_color=C["bg_dark"],
+            font=ctk.CTkFont(size=11), text_color=C["text_secondary"],
+            border_color=C["border"], border_width=1, corner_radius=6)
+        self.preview_box.pack(padx=10, pady=2, fill="x")
+        self._load_tpl_text()
+
+        ctk.CTkFrame(sb, height=1, fg_color=C["border"]).pack(fill="x", padx=16, pady=12)
+
+        # Actions
+        ctk.CTkLabel(sb, text="QUICK ACTIONS", font=ctk.CTkFont(size=10, weight="bold"),
+                      text_color=C["text_muted"]).pack(anchor="w", padx=20, pady=(4, 6))
+        
+        StyledButton(sb, text="🌐 Verify WhatsApp Web", width=240, color=C["accent_purple"],
+                     command=self.engine.open_whatsapp_web).pack(padx=10, pady=3)
+        StyledButton(sb, text="📂 Load Excel File", width=240,
+                     command=self._load_excel).pack(padx=10, pady=3)
+        StyledButton(sb, text="📥 Download Template", width=240, color=C["accent_cyan"],
+                     hover=C["accent_blue"], command=self._download_template).pack(padx=10, pady=3)
+
+        StyledButton(sb, text="✨ Take a Pro Tour", width=240, color=C["status_green"],
+                     hover="#15803d", command=self._start_app_tour).pack(padx=10, pady=(3, 3))
+
+        # Delay & Wait config
+        self.config_frame = ctk.CTkFrame(sb, fg_color="transparent")
+        self.config_frame.pack(fill="x", padx=16, pady=(12, 0))
+        ctk.CTkFrame(self.config_frame, height=1, fg_color=C["border"]).pack(fill="x", pady=12)
+        ctk.CTkLabel(self.config_frame, text="AUTOMATION CONFIG", font=ctk.CTkFont(size=10, weight="bold"),
+                      text_color=C["text_muted"]).pack(anchor="w", padx=4, pady=(4, 4))
+        
+        df = ctk.CTkFrame(self.config_frame, fg_color="transparent")
+        df.pack(padx=0, fill="x")
+        ctk.CTkLabel(df, text="Delay (s):", text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left")
+        self.delay_min = ctk.CTkEntry(df, width=40, fg_color=C["bg_input"])
+        self.delay_min.insert(0, "20")
+        self.delay_min.pack(side="left", padx=(4, 4))
+        ctk.CTkLabel(df, text="-", text_color=C["text_secondary"]).pack(side="left")
+        self.delay_max = ctk.CTkEntry(df, width=40, fg_color=C["bg_input"])
+        self.delay_max.insert(0, "40")
+        self.delay_max.pack(side="left", padx=4)
+
+        wf = ctk.CTkFrame(sb, fg_color="transparent")
+        wf.pack(padx=10, fill="x", pady=(8, 0))
+        ctk.CTkLabel(wf, text="Wait Time:", text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left")
+        self.wait_time_entry = ctk.CTkEntry(wf, width=40, fg_color=C["bg_input"])
+        self.wait_time_entry.insert(0, "15")
+        self.wait_time_entry.pack(side="left", padx=(4, 8))
+
+        # Config Explanation
+        explanations = (
+            "• Delay: Random pause between sending messages to mimic human behavior and prevent bans.\n"
+            "• Wait Time: Initial seconds given to let WhatsApp Web fully load."
+        )
+        ctk.CTkLabel(sb, text=explanations, text_color=C["text_muted"], font=ctk.CTkFont(size=10),
+                     justify="left", wraplength=230).pack(padx=15, pady=(8, 15), anchor="w")
+
+    def _insert_placeholder(self, choice):
+        if choice == "Insert Placeholder...": return
+        self.tpl_editor.insert("insert", choice)
+        self.ph_var.set("Insert Placeholder...") # Reset dropdown visually
+        self._update_preview()
+
+    def _update_preview(self, event=None):
+        text = self.tpl_editor.get("1.0", "end-1c")
+        
+        # Logic: Use real data if a row is selected, else use dummy
+        if self.last_selected_index is not None and self.rows[self.last_selected_index]["selected"]:
+            data = self.rows[self.last_selected_index]
+        else:
+            data = {"name": "Ahmed Ali", "group_code": "G-102", "time": "02:00 PM", "day": "Friday"}
+
+        full_name = data.get("name", "")
+        first_name = full_name.split()[0] if full_name else ""
+        
+        text = text.replace("{name}", first_name)
+        text = text.replace("{group_code}", data.get("group_code", ""))
+        text = text.replace("{time}", data.get("time", ""))
+        text = text.replace("{day}", data.get("day", ""))
+        
+        self.preview_box.configure(state="normal")
+        self.preview_box.delete("1.0", "end")
+        self.preview_box.insert("1.0", text if text.strip() else "Type a message above...")
+        self.preview_box.configure(state="disabled")
+
+    # ── Main Panel ───────────────────────────────────────────
+    def _build_main(self):
+        main = ctk.CTkFrame(self, fg_color=C["bg_dark"], corner_radius=0)
+        main.pack(side="right", fill="both", expand=True)
+
+        # Top bar
+        top = ctk.CTkFrame(main, height=60, fg_color=C["bg_card"], corner_radius=0)
+        top.pack(fill="x")
+        top.pack_propagate(False)
+        ctk.CTkLabel(top, text="📋  Message Queue", font=ctk.CTkFont(size=18, weight="bold"),
+                      text_color=C["text_primary"]).pack(side="left", padx=20)
+
+        self.status_label = ctk.CTkLabel(top, text="No file loaded",
+            font=ctk.CTkFont(size=12), text_color=C["text_muted"])
+        self.status_label.pack(side="right", padx=20)
+
+        # Action bar
+        ab = ctk.CTkFrame(main, height=50, fg_color=C["bg_card"], corner_radius=0)
+        ab.pack(fill="x", pady=(1, 0))
+        ab.pack_propagate(False)
+
+        # Slot Selector
+        ctk.CTkLabel(ab, text="Time Slot:", text_color=C["accent_cyan"], font=ctk.CTkFont(weight="bold")).pack(side="left", padx=(16, 4))
+        self.slot_var = ctk.StringVar(value=self.current_slot)
+        self.slot_menu = ctk.CTkOptionMenu(ab, variable=self.slot_var, width=120,
+            values=list(self.all_data.keys()),
+            fg_color=C["bg_input"], button_color=C["accent_cyan"],
+            command=self._on_slot_change)
+        self.slot_menu.pack(side="left", padx=4)
+
+        # Day Filter
+        ctk.CTkLabel(ab, text="Day Filter:", text_color=C["text_secondary"]).pack(side="left", padx=(16, 4))
+        self.day_filter_var = ctk.StringVar(value="All Days")
+        self.day_filter_menu = ctk.CTkOptionMenu(ab, variable=self.day_filter_var, width=120,
+            values=["All Days", "Friday", "Saturday"],
+            fg_color=C["bg_input"], button_color=C["accent_blue"],
+            command=self._on_day_filter_change)
+        self.day_filter_menu.pack(side="left", padx=4)
+
+        # Send buttons
+        StyledButton(ab, text="🚀 Send Selected", command=self._send_selected
+                     ).pack(side="right", padx=4, pady=8)
+        StyledButton(ab, text="📡 Schedule All", color=C["accent_purple"],
+                     hover=C["accent_blue"], command=self._send_all
+                     ).pack(side="right", padx=4, pady=8)
+        StyledButton(ab, text="🗑 Delete Selected", color=C["danger"], hover="#991b1b",
+                     command=self._delete_selected).pack(side="right", padx=4, pady=8)
+        StyledButton(ab, text="➕ Add Manual", color=C["accent_blue"],
+                     command=self._add_manual_row).pack(side="right", padx=4, pady=8)
+        self.bulk_paste_btn = StyledButton(ab, text="📋 Bulk Paste", color=C["accent_blue"],
+                     command=self._bulk_paste_dialog)
+        self.bulk_paste_btn.pack(side="right", padx=4, pady=8)
+        StyledButton(ab, text="⛔ Stop", color=C["danger"], hover="#991b1b",
+                     command=self._stop_sending).pack(side="right", padx=4, pady=8)
+
+        # Table header
+        hdr = ctk.CTkFrame(main, height=36, fg_color=C["bg_sidebar"], corner_radius=0)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        
+        self.select_all_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(hdr, text="", variable=self.select_all_var, width=40,
+            command=self._toggle_select_all, fg_color=C["accent_blue"],
+            hover_color=C["accent_purple"]).pack(side="left", padx=(8, 0))
+
+        cols = [("Instructor", 160), ("Phone", 130), ("Group Code", 130),
+                ("Day", 90), ("Time", 90), ("Status", 100), ("Actions", 300)]
+        for text, w in cols:
+            ctk.CTkLabel(hdr, text=text, width=w, font=ctk.CTkFont(size=11, weight="bold"),
+                          text_color=C["text_muted"]).pack(side="left", padx=2)
+
+        # Scrollable table body
+        self.table_frame = ctk.CTkScrollableFrame(main, fg_color=C["bg_dark"])
+        self.table_frame.pack(fill="both", expand=True, padx=0, pady=0)
+
+        # Bottom stats bar
+        self.stats_bar = ctk.CTkFrame(main, height=36, fg_color=C["bg_card"], corner_radius=0)
+        self.stats_bar.pack(fill="x", side="bottom")
+        self.stats_label = ctk.CTkLabel(self.stats_bar, text="",
+            font=ctk.CTkFont(size=11), text_color=C["text_secondary"])
+        self.stats_label.pack(side="left", padx=16)
+
+    # ── Template helpers ─────────────────────────────────────
+    def _load_tpl_text(self):
+        self.tpl_editor.delete("1.0", "end")
+        name = self.tpl_var.get()
+        self.tpl_editor.insert("1.0", self.templates.get(name, ""))
+        self._update_preview()
+
+    def _on_template_select(self, _=None):
+        self._load_tpl_text()
+
+    def _save_current_tpl(self):
+        name = self.tpl_var.get()
+        self.templates[name] = self.tpl_editor.get("1.0", "end").strip()
+        save_templates(self.templates)
+        messagebox.showinfo("Saved", f"Template '{name}' saved.")
+
+    def _new_template(self):
+        dlg = ctk.CTkInputDialog(text="Template name:", title="New Template")
+        name = dlg.get_input()
+        if not name:
+            return
+        self.templates[name] = "Hello Eng. {name}, your {group_code} group..."
+        save_templates(self.templates)
+        self.tpl_menu.configure(values=list(self.templates.keys()))
+        self.tpl_var.set(name)
+        self._load_tpl_text()
+
+    def _delete_template(self):
+        name = self.tpl_var.get()
+        if not name:
+            return
+        if messagebox.askyesno("Delete Template", f"Are you sure you want to delete the template '{name}'?"):
+            if name in self.templates:
+                del self.templates[name]
+                if not self.templates:
+                    self.templates["New Template"] = ""
+                save_templates(self.templates)
+                keys = list(self.templates.keys())
+                self.tpl_menu.configure(values=keys)
+                self.tpl_var.set(keys[0])
+                self._load_tpl_text()
+
+    def _reset_templates(self):
+        if messagebox.askyesno("Reset Templates", "Are you sure you want to reset all templates to their defaults?\n\nThis will erase any custom templates you have created."):
+            from app_config import DEFAULT_TEMPLATES
+            self.templates = dict(DEFAULT_TEMPLATES)
+            save_templates(self.templates)
+            keys = list(self.templates.keys())
+            self.tpl_menu.configure(values=keys)
+            self.tpl_var.set(keys[0])
+            self._load_tpl_text()
+            messagebox.showinfo("Reset Successful", "Templates have been reset to defaults.")
+
+    def _show_emoji_picker(self):
+        emojis = [
+            "😊", "😂", "🙏", "👍", "❤️", "✨", "✅", "❌", "⚠️", "📅", "🕒", "🎓", 
+            "📚", "👋", "🎉", "🔥", "📌", "📢", "🌟", "💡", "📝", "📊", "🚀", "💪", 
+            "🤝", "🙌", "👏", "😉", "😍", "😎", "🤔", "😅", "💯", "❗", "❓", "✅",
+            "🏆", "🎯", "🥇", "👨‍🏫", "👩‍🏫", "⏰", "⌛", "💻", "📱", "📞", "✉️"
+        ]
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Emojis")
+        dlg.geometry("280x250")
+        dlg.configure(fg_color=C["bg_dark"])
+        dlg.transient(self)
+        
+        self.update_idletasks()
+        x = self.winfo_x() + 50
+        y = self.winfo_y() + 150
+        dlg.geometry(f"+{x}+{y}")
+        
+        frame = ctk.CTkScrollableFrame(dlg, fg_color="transparent")
+        frame.pack(padx=10, pady=10, fill="both", expand=True)
+        
+        row, col = 0, 0
+        for em in emojis:
+            btn = ctk.CTkButton(frame, text=em, width=35, height=35, font=ctk.CTkFont(size=16),
+                                fg_color=C["bg_input"], hover_color=C["hover"],
+                                command=lambda e=em: self._insert_emoji(e))
+            btn.grid(row=row, column=col, padx=2, pady=2)
+            col += 1
+            if col > 4:
+                col = 0
+                row += 1
+
+    def _insert_emoji(self, emoji):
+        self.tpl_editor.insert("insert", emoji)
+        self._update_preview()
+
+    def _load_all_data(self):
+        from app_config import DATA_FILE
+        import json
+        if os.path.exists(DATA_FILE):
+            try:
+                with open(DATA_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if data:
+                        return data
+            except: pass
+        return {}
+
+    def _save_all_data(self):
+        from app_config import DATA_FILE
+        import json
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.all_data, f, ensure_ascii=False, indent=2)
+        self._auto_save_excel()
+
+    def _auto_save_excel(self):
+        try:
+            wb = openpyxl.Workbook()
+            wb.remove(wb.active)
+            from openpyxl.styles import Font, PatternFill, Alignment
+            
+            for slot, rows in self.all_data.items():
+                if not rows: continue
+                title = str(slot)[:31].replace("/", "_").replace("\\", "_")
+                ws = wb.create_sheet(title=title)
+                
+                headers = ["Instructor", "Phone", "Group Code", "Day", "Time", "Status"]
+                for c, h in enumerate(headers, 1):
+                    cell = ws.cell(row=1, column=c, value=h)
+                    cell.font = Font(bold=True, color="FFFFFF")
+                    cell.fill = PatternFill(fill_type="solid", start_color="1a73e8")
+                    cell.alignment = Alignment(horizontal="center")
+                    
+                for ri, row in enumerate(rows, 2):
+                    for ci, key in enumerate(["name","phone","group_code","day","time","status"], 1):
+                        cell = ws.cell(row=ri, column=ci, value=row.get(key, ""))
+                        cell.alignment = Alignment(horizontal="center")
+                        if key == "status":
+                            cmap = {STATUS_CONF: "22c55e", STATUS_ACK: "06b6d4",
+                                    STATUS_SENT: "f59e0b", STATUS_NOT_SENT: "ef4444"}
+                            c_hex = cmap.get(row["status"], "6b7280")
+                            cell.font = Font(bold=True, color=c_hex)
+                for c in range(1, len(headers)+1):
+                    ws.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 18
+            
+            if not wb.sheetnames:
+                wb.create_sheet("Empty")
+                
+            wb.save("Coordination_AutoSave.xlsx")
+        except Exception:
+            pass
+
+    def _update_slot_menu(self):
+        day_filter = self.day_filter_var.get()
+        all_slots = sorted([s for s, rows in self.all_data.items() if rows])
+        
+        if day_filter == "All Days":
+            filtered_slots = all_slots
+        else:
+            filtered_slots = [s for s in all_slots if s.startswith(day_filter)]
+            
+        if not filtered_slots:
+            filtered_slots = ["No slots found"]
+            
+        self.slot_menu.configure(values=filtered_slots)
+        
+        if self.current_slot not in filtered_slots:
+            self.current_slot = filtered_slots[0]
+            self.slot_var.set(self.current_slot)
+            if self.current_slot in self.all_data:
+                self.rows = self.all_data[self.current_slot]
+            else:
+                self.rows = []
+        else:
+            self.slot_var.set(self.current_slot)
+            self.rows = self.all_data[self.current_slot]
+
+    def _on_day_filter_change(self, _):
+        self._update_slot_menu()
+        self._render_table()
+
+    def _on_slot_change(self, slot):
+        if slot == "No slots found": return
+        self.current_slot = slot
+        self.rows = self.all_data[self.current_slot]
+        self._render_table()
+        self.status_label.configure(text=f"Switched to {slot} schedule")
+
+    # ── Excel loading ────────────────────────────────────────
+    def _load_excel(self):
+        path = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")])
+        if not path:
+            return
+        try:
+            wb = openpyxl.load_workbook(path)
+            ws = wb.active
+            new_rows = []
+            for r in ws.iter_rows(min_row=2, values_only=True):
+                if not r[0]:
+                    continue
+                new_rows.append({
+                    "name": str(r[0] or ""),
+                    "phone": normalize_phone(r[1]),
+                    "group_code": str(r[2] or ""),
+                    "day": str(r[3] or "Friday"),
+                    "time": str(r[4] or ""),
+                    "status": STATUS_NOT_SENT,
+                    "selected": False,
+                    "visible": True,
+                })
+            
+            if messagebox.askyesno("Import", f"Load {len(new_rows)} rows? They will be distributed by Day & Time slot."):
+                for r in new_rows:
+                    d = r.get("day", "Friday").strip()
+                    t = r.get("time", "").strip()
+                    slot_key = f"{d} - {t}" if t else d
+                    
+                    if slot_key not in self.all_data:
+                        self.all_data[slot_key] = []
+                    self.all_data[slot_key].append(r)
+                
+                self._update_slot_menu()
+                self._save_all_data()
+                self._render_table()
+                self.status_label.configure(text=f"Imported {len(new_rows)} rows")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
+    # ── Table rendering ──────────────────────────────────────
+    def _render_table(self):
+        for w in self.table_frame.winfo_children():
+            w.destroy()
+        self.row_widgets.clear()
+
+        for i, row in enumerate(self.rows):
+            if not row["visible"]:
+                self.row_widgets.append(None)
+                continue
+            bg = C["bg_card"] if i % 2 == 0 else C["bg_dark"]
+            rf = ctk.CTkFrame(self.table_frame, height=44, fg_color=bg, corner_radius=0)
+            rf.pack(fill="x", pady=1)
+            rf.pack_propagate(False)
+
+            var = ctk.BooleanVar(value=row["selected"])
+            cb = ctk.CTkCheckBox(rf, text="", variable=var, width=40,
+                fg_color=C["accent_blue"], hover_color=C["accent_purple"],
+                command=lambda idx=i, v=var: self._toggle_row(idx, v))
+            cb.pack(side="left", padx=(8, 0))
+
+            name_disp = row["name"] if len(row["name"]) <= 22 else row["name"][:20] + "…"
+            ctk.CTkLabel(rf, text=name_disp, width=160, anchor="w",
+                text_color=C["text_primary"], font=ctk.CTkFont(size=12)).pack(side="left", padx=2)
+            ctk.CTkLabel(rf, text=row["phone"], width=130, anchor="w",
+                text_color=C["text_secondary"], font=ctk.CTkFont(size=12)).pack(side="left", padx=2)
+            
+            gc_disp = row["group_code"] if len(row["group_code"]) <= 18 else row["group_code"][:16] + "…"
+            ctk.CTkLabel(rf, text=gc_disp, width=130, anchor="w",
+                text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left", padx=2)
+            
+            ctk.CTkLabel(rf, text=row.get("day", ""), width=90, anchor="w",
+                text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left", padx=2)
+            ctk.CTkLabel(rf, text=row["time"], width=90, anchor="w",
+                text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left", padx=2)
+
+            sf = ctk.CTkFrame(rf, fg_color="transparent", width=100)
+            sf.pack(side="left", padx=2)
+            sf.pack_propagate(False)
+            dot = StatusDot(sf, color=STATUS_COLORS.get(row["status"], C["status_red"]))
+            dot.pack(side="left", padx=(4, 6), pady=14)
+            sl = ctk.CTkLabel(sf, text=row["status"], font=ctk.CTkFont(size=11),
+                text_color=STATUS_COLORS.get(row["status"], C["text_secondary"]))
+            sl.pack(side="left")
+            sl.bind("<Button-1>", lambda e, idx=i: self._show_error_detail(idx))
+
+            af = ctk.CTkFrame(rf, fg_color="transparent", width=300)
+            af.pack(side="left", padx=4)
+            StyledButton(af, text="✎ Edit", width=60, color=C["accent_purple"],
+                hover=C["accent_blue"],
+                command=lambda idx=i: self._edit_row_dialog(idx)).pack(side="left", padx=2, pady=6)
+            StyledButton(af, text="✓ Ack", width=65, color=C["accent_cyan"],
+                hover=C["accent_blue"],
+                command=lambda idx=i: self._set_status(idx, STATUS_ACK)).pack(side="left", padx=2, pady=6)
+            StyledButton(af, text="✔ Confirm", width=80, color=C["status_green"],
+                hover="#15803d",
+                command=lambda idx=i: self._set_status(idx, STATUS_CONF)).pack(side="left", padx=2, pady=6)
+            StyledButton(af, text="🔄 Reset", width=65, color=C["text_muted"],
+                hover=C["hover"],
+                command=lambda idx=i: self._set_status(idx, STATUS_NOT_SENT)).pack(side="left", padx=2, pady=6)
+            StyledButton(af, text="🗑", width=36, color=C["danger"],
+                hover="#991b1b",
+                command=lambda idx=i: self._delete_row(idx)).pack(side="left", padx=2, pady=6)
+
+            self.row_widgets.append({"frame": rf, "cb_var": var, "dot": dot, "status_lbl": sl})
+
+        self._update_stats()
+        self._save_all_data()
+
+    def _toggle_row(self, idx, var):
+        self.rows[idx]["selected"] = var.get()
+        if var.get():
+            self.last_selected_index = idx
+            self._update_preview() # Update preview with real data
+
+    def _toggle_select_all(self):
+        val = self.select_all_var.get()
+        for i, row in enumerate(self.rows):
+            if row["visible"]:
+                row["selected"] = val
+                w = self.row_widgets[i]
+                if w:
+                    w["cb_var"].set(val)
+
+    def _set_status(self, idx, status, detail=None):
+        self.rows[idx]["status"] = status
+        if detail:
+            self.rows[idx]["error_detail"] = detail
+        
+        w = self.row_widgets[idx]
+        if w:
+            color = STATUS_COLORS.get(status, C["text_muted"])
+            w["dot"].set_color(color)
+            
+            display_text = status
+            if status == STATUS_FAILED and detail:
+                display_text = f"{STATUS_FAILED} (!)"
+            
+            w["status_lbl"].configure(text=display_text, text_color=color)
+            
+            if status == STATUS_FAILED:
+                err_msg = detail or "Unknown error"
+                self.status_label.configure(text=f"Error: {err_msg}", text_color=C["status_red"])
+                messagebox.showerror("Send Failed", 
+                    f"Failed to send message to:\n{self.rows[idx]['name']} ({self.rows[idx]['phone']})\n\nError:\n{err_msg}")
+        
+        self._update_stats()
+        self._save_all_data()
+
+    def _show_error_detail(self, idx):
+        row = self.rows[idx]
+        if row["status"] == STATUS_FAILED:
+            detail = row.get("error_detail", "No detailed error message available.")
+            messagebox.showerror("Send Failure", 
+                f"Instructor: {row['name']}\nPhone: {row['phone']}\n\nError:\n{detail}")
+
+    def _delete_row(self, idx):
+        name = self.rows[idx]["name"]
+        if messagebox.askyesno("Confirm Delete", f"Remove '{name}' from {self.current_slot}?"):
+            self.rows.pop(idx)
+            self._save_all_data()
+            self._update_slot_menu()
+            self._render_table()
+
+    def _delete_selected(self):
+        count = sum(1 for r in self.rows if r["selected"] and r["visible"])
+        if count == 0:
+            return
+        if messagebox.askyesno("Confirm Delete", f"Delete {count} selected items from {self.current_slot}?"):
+            self.all_data[self.current_slot] = [r for r in self.rows if not (r["selected"] and r["visible"])]
+            self.rows = self.all_data[self.current_slot]
+            self._save_all_data()
+            self._update_slot_menu()
+            self._render_table()
+
+    def _add_manual_row(self):
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Add Manual Instructor")
+        dlg.geometry("450x550")
+        dlg.configure(fg_color=C["bg_dark"])
+        dlg.transient(self)
+        dlg.grab_set()
+        
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 225
+        y = self.winfo_y() + (self.winfo_height() // 2) - 275
+        dlg.geometry(f"+{x}+{y}")
+
+        content = ctk.CTkFrame(dlg, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=30, pady=30)
+
+        ctk.CTkLabel(content, text="Manual Entry", font=ctk.CTkFont(size=20, weight="bold"),
+                     text_color=C["accent_blue"]).pack(pady=(0, 20))
+
+        fields = {}
+        items = [("Name", "name"), ("Phone", "phone"), ("Group Code", "group_code"), 
+                 ("Day", "day"), ("Time", "time")]
+        for label, key in items:
+            ctk.CTkLabel(content, text=label, text_color=C["text_secondary"], font=ctk.CTkFont(size=12)).pack(anchor="w")
+            entry = ctk.CTkEntry(content, width=350, fg_color=C["bg_input"], border_color=C["border"])
+            if key == "day":
+                entry.insert(0, "Friday")
+            entry.pack(pady=(2, 12))
+            fields[key] = entry
+
+        def save():
+            day_val = fields["day"].get().strip() or "Friday"
+            time_val = fields["time"].get().strip()
+            slot_key = f"{day_val} - {time_val}" if time_val else day_val
+
+            new_row = {
+                "name": fields["name"].get().strip(),
+                "phone": normalize_phone(fields["phone"].get().strip()),
+                "group_code": fields["group_code"].get().strip(),
+                "day": day_val,
+                "time": time_val,
+                "status": STATUS_NOT_SENT,
+                "selected": False,
+                "visible": True,
+            }
+            if not new_row["name"] or not new_row["phone"]:
+                messagebox.showerror("Error", "Name and Phone are required.")
+                return
+            
+            if slot_key not in self.all_data:
+                self.all_data[slot_key] = []
+                
+            self.all_data[slot_key].append(new_row)
+            self._update_slot_menu()
+            self._save_all_data()
+            if slot_key == self.current_slot:
+                self._render_table()
+            else:
+                if messagebox.askyesno("Slot Changed", f"Instructor added to slot '{slot_key}'. Switch to that slot?"):
+                    self.slot_var.set(slot_key)
+                    self._on_slot_change(slot_key)
+            dlg.destroy()
+
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(10, 0))
+        
+        StyledButton(btn_frame, text="Cancel", color=C["bg_input"], text_color=C["text_primary"],
+                     hover=C["hover"], command=dlg.destroy).pack(side="left", padx=5, expand=True)
+        StyledButton(btn_frame, text="Add to Queue", command=save).pack(side="left", padx=5, expand=True)
+
+    def _edit_row_dialog(self, idx):
+        row = self.rows[idx]
+        dlg = ctk.CTkToplevel(self)
+        dlg.title(f"Edit: {row['name']}")
+        dlg.geometry("450x550")
+        dlg.configure(fg_color=C["bg_dark"])
+        dlg.transient(self)
+        dlg.grab_set()
+        
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 225
+        y = self.winfo_y() + (self.winfo_height() // 2) - 275
+        dlg.geometry(f"+{x}+{y}")
+
+        content = ctk.CTkFrame(dlg, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=30, pady=30)
+
+        ctk.CTkLabel(content, text="Edit Entry", font=ctk.CTkFont(size=20, weight="bold"),
+                     text_color=C["accent_purple"]).pack(pady=(0, 20))
+
+        fields = {}
+        items = [("Name", "name"), ("Phone", "phone"), ("Group Code", "group_code"), 
+                 ("Day", "day"), ("Time", "time")]
+        
+        for label, key in items:
+            ctk.CTkLabel(content, text=label, text_color=C["text_secondary"], font=ctk.CTkFont(size=12)).pack(anchor="w")
+            entry = ctk.CTkEntry(content, width=350, fg_color=C["bg_input"], border_color=C["border"])
+            entry.insert(0, row.get(key, ""))
+            entry.pack(pady=(2, 12))
+            fields[key] = entry
+
+        def save_changes():
+            old_slot = self.current_slot
+            new_day = fields["day"].get().strip() or "Friday"
+            new_time = fields["time"].get().strip()
+            new_slot = f"{new_day} - {new_time}" if new_time else new_day
+                
+            updated_data = {
+                "name": fields["name"].get().strip(),
+                "phone": normalize_phone(fields["phone"].get().strip()),
+                "group_code": fields["group_code"].get().strip(),
+                "day": new_day,
+                "time": new_time,
+            }
+            
+            if old_slot != new_slot:
+                if new_slot not in self.all_data:
+                    self.all_data[new_slot] = []
+                
+                self.rows[idx].update(updated_data)
+                moved_row = self.rows.pop(idx)
+                self.all_data[new_slot].append(moved_row)
+                
+                self._update_slot_menu()
+                self._save_all_data()
+                self._render_table()
+                
+                if messagebox.askyesno("Slot Changed", f"Moved to slot '{new_slot}'. Switch to that slot?"):
+                    self.slot_var.set(new_slot)
+                    self._on_slot_change(new_slot)
+            else:
+                self.rows[idx].update(updated_data)
+                self._save_all_data()
+                self._render_table()
+            dlg.destroy()
+
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(10, 0))
+        
+        StyledButton(btn_frame, text="Cancel", color=C["bg_input"], text_color=C["text_primary"],
+                     command=dlg.destroy).pack(side="left", padx=5, expand=True)
+        StyledButton(btn_frame, text="Save Changes", color=C["accent_purple"], command=save_changes).pack(side="left", padx=5, expand=True)
+
+    def _bulk_paste_dialog(self):
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Grid Import — Paste & Edit")
+        dlg.geometry("1000x700")
+        dlg.configure(fg_color=C["bg_dark"])
+        dlg.transient(self)
+        dlg.grab_set()
+
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 500
+        y = self.winfo_y() + (self.winfo_height() // 2) - 350
+        dlg.geometry(f"+{x}+{y}")
+
+        content = ctk.CTkFrame(dlg, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=20, pady=20)
+
+        top_f = ctk.CTkFrame(content, fg_color="transparent")
+        top_f.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(top_f, text="Grid Data Import", font=ctk.CTkFont(size=22, weight="bold"),
+                     text_color=C["accent_blue"]).pack(side="left")
+        
+        hdr = ctk.CTkFrame(content, height=30, fg_color=C["bg_sidebar"])
+        hdr.pack(fill="x", pady=(10, 2))
+        cols_cfg = [("Name*", 170), ("Phone*", 130), ("Group Code*", 130), ("Day", 90), ("Time", 90)]
+        for t, w in cols_cfg:
+            ctk.CTkLabel(hdr, text=t, width=w, font=ctk.CTkFont(size=12, weight="bold"),
+                         text_color=C["text_muted"]).pack(side="left", padx=5)
+
+        grid_frame = ctk.CTkScrollableFrame(content, fg_color=C["bg_input"], corner_radius=8)
+        grid_frame.pack(fill="both", expand=True)
+        
+        entry_rows = [] 
+
+        def add_row():
+            row_f = ctk.CTkFrame(grid_frame, fg_color="transparent")
+            row_f.pack(fill="x", pady=2)
+            row_data = {}
+            for key, w in [("name", 170), ("phone", 130), ("group_code", 130), ("day", 90), ("time", 90)]:
+                e = ctk.CTkEntry(row_f, width=w, fg_color=C["bg_card"], border_width=1)
+                e.pack(side="left", padx=5)
+                row_data[key] = e
+            entry_rows.append(row_data)
+
+        def paste_excel():
+            try:
+                raw = self.clipboard_get()
+            except:
+                messagebox.showerror("Error", "Clipboard is empty.")
+                return
+            
+            lines = [l for l in raw.strip().split('\n') if l.strip()]
+            if not lines: return
+
+            while len(entry_rows) < len(lines):
+                add_row()
+            
+            for i, line in enumerate(lines):
+                parts = line.split('\t')
+                row = entry_rows[i]
+                fields = ["name", "phone", "group_code", "day", "time"]
+                for pi, val in enumerate(parts):
+                    if pi < len(fields):
+                        row[fields[pi]].delete(0, "end")
+                        row[fields[pi]].insert(0, val.strip())
+
+        def validate_import():
+            final = []
+            errors = []
+            for i, row in enumerate(entry_rows):
+                vals = {k: e.get().strip() for k, e in row.items()}
+                if not any(vals.values()): continue
+                
+                missing = []
+                if not vals["name"]: missing.append("Name")
+                if not vals["phone"]: missing.append("Phone")
+                if not vals["group_code"]: missing.append("Group Code")
+                
+                if missing:
+                    errors.append(f"Row {i+1}: Missing {', '.join(missing)}")
+                else:
+                    vals["phone"] = normalize_phone(vals["phone"])
+                    final.append({**vals, "status": STATUS_NOT_SENT, "selected": False, "visible": True})
+
+            if errors:
+                messagebox.showerror("Missing Data", "Fix errors before importing:\n\n" + "\n".join(errors[:15]))
+                return
+            
+            if not final: return
+            
+            for r in final:
+                d = r.get("day", "Friday").strip()
+                t = r.get("time", "").strip()
+                slot_key = f"{d} - {t}" if t else d
+                
+                if slot_key not in self.all_data:
+                    self.all_data[slot_key] = []
+                self.all_data[slot_key].append(r)
+                
+            self._update_slot_menu()
+            self._save_all_data()
+            self._render_table()
+            dlg.destroy()
+
+        StyledButton(top_f, text="📋 Paste from Excel", width=160, color=C["accent_purple"],
+                     command=paste_excel).pack(side="right", padx=5)
+        StyledButton(top_f, text="➕ Add Row", width=100, color=C["bg_input"], text_color=C["text_primary"],
+                     command=add_row).pack(side="right", padx=5)
+
+        for _ in range(10): add_row()
+
+        btn_f = ctk.CTkFrame(content, fg_color="transparent")
+        btn_f.pack(fill="x", pady=(20, 0))
+        StyledButton(btn_f, text="Cancel", color=C["bg_input"], text_color=C["text_primary"],
+                     command=dlg.destroy).pack(side="left", padx=5, expand=True)
+        StyledButton(btn_f, text="Confirm & Import", color=C["success"],
+                     command=validate_import).pack(side="right", padx=5, expand=True)
+
+    def _update_stats(self):
+        total = len(self.rows)
+        sent = sum(1 for r in self.rows if r["status"] in (STATUS_SENT, STATUS_ACK, STATUS_CONF))
+        conf = sum(1 for r in self.rows if r["status"] == STATUS_CONF)
+        pending = total - sent
+        self.stats_label.configure(
+            text=f"Total: {total}  |  Sent: {sent}  |  Confirmed: {conf}  |  Pending: {pending}")
+
+    # ── Sending ──────────────────────────────────────────────
+    def _get_template_text(self):
+        return self.tpl_editor.get("1.0", "end").strip()
+
+    def _send_selected(self):
+        selected = [{"row_index": i, **r} for i, r in enumerate(self.rows)
+                     if r["selected"] and r["visible"] and r["status"] not in (STATUS_SENT, STATUS_ACK, STATUS_CONF)]
+        if not selected:
+            messagebox.showwarning("Nothing selected", "Select rows to send.")
+            return
+        self._do_send(selected)
+
+    def _send_all(self):
+        targets = [{"row_index": i, **r} for i, r in enumerate(self.rows)
+                    if r["visible"] and r["status"] not in (STATUS_SENT, STATUS_ACK, STATUS_CONF)]
+        if not targets:
+            messagebox.showinfo("Done", "All visible messages already sent.")
+            return
+        self._do_send(targets)
+
+    def _do_send(self, targets):
+        # CHECK IF ALREADY SENT
+        already_sent = [t["name"] for t in targets if t["status"] in (STATUS_SENT, STATUS_ACK, STATUS_CONF)]
+        
+        if already_sent:
+            msg = f"The following instructors are already marked as Sent/Confirmed:\n\n" + \
+                  "\n".join(already_sent[:5]) + ("\n..." if len(already_sent) > 5 else "") + \
+                  "\n\nPlease reset their status to 'Not Sent' before sending again."
+            messagebox.showwarning("Already Sent", msg)
+            return
+
+        try:
+            mn, mx = int(self.delay_min.get()), int(self.delay_max.get())
+            wt = int(self.wait_time_entry.get())
+            self.engine.min_delay, self.engine.max_delay = mn, mx
+            self.engine.wait_time = wt
+        except ValueError:
+            pass
+        tpl = self._get_template_text()
+        for t in targets:
+            t["phone"] = normalize_phone(t.get("phone", ""))
+            self._set_status(t["row_index"], STATUS_SENDING)
+
+        progress_dlg = ctk.CTkToplevel(self)
+        progress_dlg.title("Sending Messages")
+        progress_dlg.geometry("350x200")
+        progress_dlg.configure(fg_color=C["bg_dark"])
+        progress_dlg.transient(self)
+        progress_dlg.grab_set()
+
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 175
+        y = self.winfo_y() + (self.winfo_height() // 2) - 100
+        progress_dlg.geometry(f"+{x}+{y}")
+
+        ctk.CTkLabel(progress_dlg, text="Sending Batch...", font=ctk.CTkFont(size=16, weight="bold"), text_color=C["accent_blue"]).pack(pady=(20, 10))
+        
+        progress_bar = ctk.CTkProgressBar(progress_dlg, width=280, progress_color=C["accent_blue"])
+        progress_bar.pack(pady=10)
+        progress_bar.set(0)
+
+        progress_label = ctk.CTkLabel(progress_dlg, text=f"0 / {len(targets)} sent", text_color=C["text_secondary"], font=ctk.CTkFont(size=12))
+        progress_label.pack()
+
+        def stop_sending():
+            self._stop_sending()
+            if progress_dlg.winfo_exists():
+                progress_dlg.destroy()
+
+        StyledButton(progress_dlg, text="⛔ Stop", color=C["danger"], hover="#991b1b", command=stop_sending, width=100).pack(pady=(15, 0))
+
+        progress_state = {"count": 0, "total": len(targets)}
+
+        def on_prog(idx, ok, detail):
+            self.after(0, lambda: self._set_status(idx, STATUS_SENT if ok else STATUS_FAILED, detail))
+            def update_ui():
+                progress_state["count"] += 1
+                if progress_dlg.winfo_exists():
+                    progress_bar.set(progress_state["count"] / progress_state["total"])
+                    progress_label.configure(text=f"{progress_state['count']} / {progress_state['total']} sent")
+            self.after(0, update_ui)
+
+        def on_done():
+            self.after(0, lambda: self.status_label.configure(text="Batch complete."))
+            def close_dlg():
+                if progress_dlg.winfo_exists():
+                    progress_dlg.destroy()
+            self.after(1000, close_dlg)
+
+        self.engine.send_batch(targets, tpl, on_progress=on_prog, on_complete=on_done)
+        self.status_label.configure(text=f"Sending {len(targets)} messages...")
+
+    def _stop_sending(self):
+        self.engine.stop()
+        self.status_label.configure(text="Stopped.")
+
+    # ── Excel export ─────────────────────────────────────────
+    def _download_template(self):
+        fname = "Instructor_Template.xlsx"
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx",
+            initialfile=fname, filetypes=[("Excel", "*.xlsx")])
+        if not path:
+            return
+        
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Template"
+        headers = ["Instructor Name", "Phone Number", "Group Code", "Day", "Time"]
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        
+        header_fill = PatternFill(start_color="1a73e8", end_color="1a73e8", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True, size=12)
+        thin_border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = thin_border
+            
+        sample_data = ["Mohammed Ahmed", "+966501234567", "GRP-A", "Friday", "2:00 PM"]
+        for col, val in enumerate(sample_data, 1):
+            cell = ws.cell(row=2, column=col, value=val)
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = thin_border
+            
+        notes = [
+            "⚠️ IMPORTANT FORMATTING NOTES ⚠️",
+            "- Day: Single days (e.g., 'Friday', 'Saturday') or combined days (e.g., 'Friday/Saturday').",
+            "- Time: Standard 12-hour or 24-hour formats (e.g., '09:00 AM', '03:00 PM', '15:00').",
+            "- Phone Number: MUST include country code (e.g., Egyptian: '+201001234567' or '00201001234567')."
+        ]
+
+        note_start_row = 4
+        for i, note in enumerate(notes):
+            row_idx = note_start_row + i
+            ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=len(headers))
+            cell = ws.cell(row=row_idx, column=1, value=note)
+            if i == 0:
+                cell.font = Font(bold=True, color="FFFFFF", size=12)
+                cell.fill = PatternFill(start_color="EF4444", end_color="EF4444", fill_type="solid")
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                ws.row_dimensions[row_idx].height = 25
+            else:
+                cell.font = Font(bold=True, color="1E3A8A", size=11)
+                cell.fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
+                cell.alignment = Alignment(horizontal='left', vertical='center')
+                ws.row_dimensions[row_idx].height = 22
+            
+        for c in range(1, len(headers)+1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 20
+            
+        try:
+            wb.save(path)
+            messagebox.showinfo("Saved", f"Template saved to:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save template:\n{str(e)}")
+
+    def _start_app_tour(self):
+        def select_dummy_for_preview():
+            # If no rows, we can't select, but preview box will show dummy anyway
+            if self.rows:
+                # Select first row for demo
+                self.rows[0]["selected"] = True
+                if self.row_widgets and self.row_widgets[0]:
+                    self.row_widgets[0]["cb_var"].set(True)
+                self.last_selected_index = 0
+                self._update_preview()
+
+        tour_steps = [
+            {
+                "title": "1. Mission Selector 📝",
+                "msg": "Choose your mission: Switch between reminders for the day-before, pre-session readiness, or attendance checks. Each one is pre-loaded with professional emojis.",
+                "widget": self.tpl_menu 
+            },
+            {
+                "title": "2. Placeholder Menu 🏷️",
+                "msg": "Don't type names manually. Click here to insert tags like {name} or {group_code}. This ensures every instructor gets a personalized message without you typing 50 different names.",
+                "widget": self.ph_menu
+            },
+            {
+                "title": "3. Live Preview ✨",
+                "msg": "The 'What You See Is What They Get' (WYSIWYG) box. This shows the final message. It pulls data from the row you currently have selected.",
+                "widget": self.preview_box,
+                "action": select_dummy_for_preview
+            },
+            {
+                "title": "4. Filters 🕒",
+                "msg": "Organize your chaos. Managing 100 sessions? Filter by 'Friday' or '2:00 PM' to only see the instructors relevant to right now.",
+                "widget": [self.slot_menu, self.day_filter_menu]
+            },
+            {
+                "title": "5. Bulk Paste 📋",
+                "msg": "The shortcut to efficiency. Forget saving files. Copy a range from Google Sheets or Excel and paste it directly into the grid here.",
+                "widget": self.bulk_paste_btn
+            },
+            {
+                "title": "6. Account Bodyguard 🛡️",
+                "msg": "The 'Delay' (20-40s) is vital. It prevents WhatsApp from flagging you as a bot. Never set this to 0!",
+                "widget": self.config_frame,
+                "final_msg": "You're all set, Osama! 🚀\n\nThe system is now configured with the latest coordination templates. Remember to check your WhatsApp Web connection before starting a batch."
+            }
+        ]
+        TourGuide(self, tour_steps)
+
+
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()

@@ -1,6 +1,6 @@
 """DECI Automation — EYouth coordination WhatsApp Messenger."""
 import customtkinter as ctk
-import openpyxl, os, random, datetime, threading, tkinter as tk
+import openpyxl, os, random, datetime, threading, tkinter as tk, winsound
 from tkinter import filedialog, messagebox
 from app_config import COLORS as C, load_templates, save_templates
 from ui_components import StatusDot, StyledButton, SidebarButton
@@ -69,91 +69,137 @@ class TourGuide(ctk.CTkToplevel):
         self.parent = parent
         self.steps = steps
         self.current_step = 0
-        
+        self._pulse_state = False
+        self._pulse_job = None
+
         self.title("Assistant Guide")
-        self.geometry("400x250")
+        self.geometry("400x260")
         self.attributes("-topmost", True)
         self.configure(fg_color=C["bg_card"])
-        self.overrideredirect(True) # Removes window borders for a clean look
+        self.overrideredirect(True)
 
-        # UI Elements
         self.title_lbl = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=18, weight="bold"), text_color=C["accent_cyan"])
         self.title_lbl.pack(pady=(20, 5))
-        
+
         self.msg_lbl = ctk.CTkLabel(self, text="", wraplength=350, font=ctk.CTkFont(size=13))
         self.msg_lbl.pack(pady=10, padx=20)
 
         self.btn_f = ctk.CTkFrame(self, fg_color="transparent")
         self.btn_f.pack(side="bottom", fill="x", pady=20)
-        
+
+        self.skip_btn = StyledButton(self.btn_f, text="Skip", color=C["bg_input"],
+            text_color=C["text_secondary"], hover=C["hover"], command=self.close_tour, width=70)
+        self.skip_btn.pack(side="left", padx=20)
+
+        self.step_lbl = ctk.CTkLabel(self.btn_f, text="", font=ctk.CTkFont(size=11), text_color=C["text_muted"])
+        self.step_lbl.pack(side="left", expand=True)
+
         self.next_btn = StyledButton(self.btn_f, text="Next →", command=self.next_step, width=100)
         self.next_btn.pack(side="right", padx=20)
-        
-        self.step_lbl = ctk.CTkLabel(self.btn_f, text="", font=ctk.CTkFont(size=11), text_color=C["text_muted"])
-        self.step_lbl.pack(side="left", padx=20)
-        
+
         self.show_step()
 
     def show_step(self):
+        # Clean up previous step's highlight
+        if self.current_step > 0:
+            prev = self.steps[self.current_step - 1].get("widget")
+            if prev:
+                self._reset_highlight(prev)
+        self._stop_pulse()
+
         step = self.steps[self.current_step]
         self.title_lbl.configure(text=step["title"])
         self.msg_lbl.configure(text=step["msg"])
         self.step_lbl.configure(text=f"Step {self.current_step + 1} of {len(self.steps)}")
-        
+
         if self.current_step == len(self.steps) - 1:
-            self.next_btn.configure(text="Finish 🎉")
+            self.next_btn.configure(text="Finish 🎉", color=C["status_green"], hover="#15803d")
 
-        # --- THE "POINTING" LOGIC ---
-        # Reset previous widget if any
-        if self.current_step > 0:
-            prev_widget = self.steps[self.current_step-1].get("widget")
-            if prev_widget:
-                prev_widget.configure(border_width=1, border_color=C["border"])
-
-        # Highlight current widget
         target = step.get("widget")
         if target:
-            # Handle list of widgets (like top bar filters)
             targets = target if isinstance(target, list) else [target]
             for t in targets:
                 t.configure(border_width=3, border_color=C["accent_cyan"])
-            
-            # Contextual actions
+
             action = step.get("action")
             if action:
                 action()
 
-            # Center the tour window near the widget
-            # We use the first target if it's a list
-            main_target = targets[0]
-            x = main_target.winfo_rootx() + 50
-            y = main_target.winfo_rooty() + 50
-            
-            # Keep tour on screen
-            sw = self.winfo_screenwidth()
-            sh = self.winfo_screenheight()
-            if x + 400 > sw: x = sw - 450
-            if y + 250 > sh: y = sh - 300
-            
-            self.geometry(f"+{x}+{y}")
+            # Start pulsing highlight
+            self._start_pulse(targets)
+
+            # Delay positioning until Tk has rendered the widgets
+            self.after(60, lambda: self._position_near(targets[0]))
+
+    def _start_pulse(self, targets):
+        """Alternate the border color to draw attention."""
+        self._pulse_state = not self._pulse_state
+        color = C["accent_cyan"] if self._pulse_state else C["accent_purple"]
+        for t in targets:
+            if t.winfo_exists():
+                t.configure(border_color=color)
+        self._pulse_job = self.after(500, lambda: self._start_pulse(targets))
+
+    def _stop_pulse(self):
+        if self._pulse_job:
+            self.after_cancel(self._pulse_job)
+            self._pulse_job = None
+
+    def _position_near(self, widget):
+        """Smart positioning: sidebar widgets → place to the right; others → place below."""
+        if not widget.winfo_exists():
+            return
+
+        wx = widget.winfo_rootx()
+        wy = widget.winfo_rooty()
+        ww = widget.winfo_width()
+        wh = widget.winfo_height()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+
+        # If widget is in the sidebar (left ~300px), place tour window to the right
+        if wx < 350:
+            x = wx + ww + 20
+            # If that pushes off-screen, place it in the main panel area
+            if x + 400 > sw:
+                x = self.parent.winfo_x() + self.parent.winfo_width() - 440
+            y = wy + (wh // 2) - 130
+        else:
+            # Place below the widget
+            x = wx + (ww // 2) - 200
+            y = wy + wh + 15
+
+        # Clamp to screen bounds
+        x = max(10, min(x, sw - 410))
+        y = max(10, min(y, sh - 270))
+        self.geometry(f"+{x}+{y}")
 
     def next_step(self):
         self.current_step += 1
         if self.current_step < len(self.steps):
             self.show_step()
         else:
-            # Clean up highlight on exit
-            last_target = self.steps[-1].get("widget")
-            if last_target:
-                targets = last_target if isinstance(last_target, list) else [last_target]
-                for t in targets:
-                    t.configure(border_width=1, border_color=C["border"])
-            
-            # Show final message if any
-            if "final_msg" in self.steps[-1]:
-                messagebox.showinfo("Tour Complete", self.steps[-1]["final_msg"])
-            
-            self.destroy()
+            final = self.steps[-1].get("final_msg")
+            if final:
+                messagebox.showinfo("Tour Complete", final)
+            self.close_tour()
+
+    def close_tour(self):
+        self._stop_pulse()
+        idx = min(self.current_step, len(self.steps) - 1)
+        target = self.steps[idx].get("widget")
+        if target:
+            self._reset_highlight(target)
+        self.destroy()
+
+    def _reset_highlight(self, widget):
+        targets = widget if isinstance(widget, list) else [widget]
+        for t in targets:
+            if t.winfo_exists():
+                t.configure(
+                    border_width=1 if isinstance(t, ctk.CTkTextbox) else 0,
+                    border_color=C["border"]
+                )
 
 
 class App(ctk.CTk):
@@ -185,19 +231,58 @@ class App(ctk.CTk):
             if s in self.all_data and not self.all_data[s]:
                 del self.all_data[s]
 
-        slots = list(self.all_data.keys())
-        self.current_slot = slots[0] if slots else "General"
-        if self.current_slot not in self.all_data:
-            self.all_data[self.current_slot] = []
-            
-        self.rows = self.all_data[self.current_slot]
+        self.day_filter_var = ctk.StringVar(value="All Days")
+        self.slot_var = ctk.StringVar(value="All slots")
+
         self.row_widgets = []
         self.last_selected_index = None # Track selection for preview
+        self._schedule_timer = None
+        self._schedule_target_dt = None
+        self._schedule_countdown_job = None
 
         self._build_sidebar()
         self._build_main()
         self._update_slot_menu()
         self._render_table()
+
+    @property
+    def current_slot(self):
+        day_filter = self.day_filter_var.get()
+        time_filter = self.slot_var.get()
+        if day_filter == "All Days" and time_filter == "All slots":
+            return "All slots"
+        elif day_filter == "All Days":
+            return f"All Days — {time_filter}"
+        elif time_filter == "All slots":
+            return f"{day_filter} — All slots"
+        else:
+            return f"{day_filter} — {time_filter}"
+
+    def _populate_rows(self):
+        day_filter = self.day_filter_var.get()
+        time_filter = self.slot_var.get()
+        
+        self.rows = []
+        for slot_key, slot_rows in self.all_data.items():
+            # Check if this slot matches the day filter
+            if day_filter != "All Days":
+                if not slot_key.startswith(day_filter):
+                    continue
+            
+            # Check if this slot matches the time filter
+            if time_filter != "All slots":
+                slot_time = ""
+                if " - " in slot_key:
+                    slot_time = slot_key.split(" - ", 1)[1]
+                else:
+                    if slot_key == "General":
+                        slot_time = "General"
+                
+                if slot_time != time_filter:
+                    continue
+            
+            # Add matching rows
+            self.rows.extend(slot_rows)
 
     def _animate_logo(self):
         self._logo_anim_step = getattr(self, "_logo_anim_step", 0) + 1
@@ -413,23 +498,21 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=12), text_color=C["text_muted"])
         self.status_label.pack(side="right", padx=20)
 
-        # Action bar
+        # Action bar — Row 1: Filters & core actions
         ab = ctk.CTkFrame(main, height=50, fg_color=C["bg_card"], corner_radius=0)
         ab.pack(fill="x", pady=(1, 0))
         ab.pack_propagate(False)
 
         # Slot Selector
         ctk.CTkLabel(ab, text="Time Slot:", text_color=C["accent_cyan"], font=ctk.CTkFont(weight="bold")).pack(side="left", padx=(16, 4))
-        self.slot_var = ctk.StringVar(value=self.current_slot)
         self.slot_menu = ctk.CTkOptionMenu(ab, variable=self.slot_var, width=120,
-            values=list(self.all_data.keys()),
+            values=["All slots"],
             fg_color=C["bg_input"], button_color=C["accent_cyan"],
             command=self._on_slot_change)
         self.slot_menu.pack(side="left", padx=4)
 
         # Day Filter
         ctk.CTkLabel(ab, text="Day Filter:", text_color=C["text_secondary"]).pack(side="left", padx=(16, 4))
-        self.day_filter_var = ctk.StringVar(value="All Days")
         self.day_filter_menu = ctk.CTkOptionMenu(ab, variable=self.day_filter_var, width=120,
             values=["All Days", "Friday", "Saturday"],
             fg_color=C["bg_input"], button_color=C["accent_blue"],
@@ -438,9 +521,6 @@ class App(ctk.CTk):
 
         # Send buttons
         StyledButton(ab, text="🚀 Send Selected", command=self._send_selected
-                     ).pack(side="right", padx=4, pady=8)
-        StyledButton(ab, text="📡 Schedule All", color=C["accent_purple"],
-                     hover=C["accent_blue"], command=self._send_all
                      ).pack(side="right", padx=4, pady=8)
         StyledButton(ab, text="🗑 Delete Selected", color=C["danger"], hover="#991b1b",
                      command=self._delete_selected).pack(side="right", padx=4, pady=8)
@@ -451,6 +531,47 @@ class App(ctk.CTk):
         self.bulk_paste_btn.pack(side="right", padx=4, pady=8)
         StyledButton(ab, text="⛔ Stop", color=C["danger"], hover="#991b1b",
                      command=self._stop_sending).pack(side="right", padx=4, pady=8)
+
+        # Action bar — Row 2: Schedule controls + Search bar
+        ab2 = ctk.CTkFrame(main, height=46, fg_color=C["bg_card"], corner_radius=0)
+        ab2.pack(fill="x", pady=(1, 0))
+        ab2.pack_propagate(False)
+
+        StyledButton(ab2, text="🕒 Schedule Send", color=C["accent_purple"],
+                     hover=C["accent_blue"],
+                     command=self._open_schedule_dialog).pack(side="left", padx=(16, 4), pady=6)
+        StyledButton(ab2, text="⛔ Cancel Schedule", color=C["text_muted"],
+                     hover=C["hover"], command=self._cancel_schedule
+                     ).pack(side="left", padx=4, pady=6)
+
+        # Search bar (inline in row 2)
+        ctk.CTkLabel(ab2, text="🔍", font=ctk.CTkFont(size=14),
+                     text_color=C["text_muted"]).pack(side="left", padx=(20, 4))
+
+        self.search_var = ctk.StringVar()
+        self.search_entry = ctk.CTkEntry(
+            ab2,
+            textvariable=self.search_var,
+            placeholder_text="Search by name, phone, or group code…",
+            width=280,
+            fg_color=C["bg_input"],
+            border_color=C["border"],
+            border_width=1,
+        )
+        self.search_entry.pack(side="left", padx=(0, 6), pady=6)
+        self.search_var.trace_add("write", self._on_search_change)
+
+        self.search_clear_btn = StyledButton(
+            ab2, text="✕ Clear", width=65,
+            color=C["bg_input"], text_color=C["text_secondary"], hover=C["hover"],
+            command=self._clear_search,
+        )
+        self.search_clear_btn.pack(side="left", padx=2)
+
+        self.search_result_lbl = ctk.CTkLabel(
+            ab2, text="", font=ctk.CTkFont(size=11), text_color=C["text_muted"]
+        )
+        self.search_result_lbl.pack(side="right", padx=16)
 
         # Table header
         hdr = ctk.CTkFrame(main, height=36, fg_color=C["bg_sidebar"], corner_radius=0)
@@ -463,7 +584,7 @@ class App(ctk.CTk):
             hover_color=C["accent_purple"]).pack(side="left", padx=(8, 0))
 
         cols = [("Instructor", 160), ("Phone", 130), ("Group Code", 130),
-                ("Day", 90), ("Time", 90), ("Status", 100), ("Actions", 300)]
+                ("Day", 90), ("Time", 90), ("Status", 100), ("Actions", 180)]
         for text, w in cols:
             ctk.CTkLabel(hdr, text=text, width=w, font=ctk.CTkFont(size=11, weight="bold"),
                           text_color=C["text_muted"]).pack(side="left", padx=2)
@@ -633,32 +754,32 @@ class App(ctk.CTk):
         else:
             filtered_slots = [s for s in all_slots if s.startswith(day_filter)]
             
-        if not filtered_slots:
-            filtered_slots = ["No slots found"]
-            
-        self.slot_menu.configure(values=filtered_slots)
+        times = set()
+        for s in filtered_slots:
+            if " - " in s:
+                times.add(s.split(" - ", 1)[1])
+            elif s == "General":
+                times.add("General")
+                
+        sorted_times = sorted(list(times))
+        menu_values = ["All slots"] + sorted_times
         
-        if self.current_slot not in filtered_slots:
-            self.current_slot = filtered_slots[0]
-            self.slot_var.set(self.current_slot)
-            if self.current_slot in self.all_data:
-                self.rows = self.all_data[self.current_slot]
-            else:
-                self.rows = []
-        else:
-            self.slot_var.set(self.current_slot)
-            self.rows = self.all_data[self.current_slot]
+        self.slot_menu.configure(values=menu_values)
+        
+        if self.slot_var.get() not in menu_values:
+            self.slot_var.set("All slots")
+            
+        self._populate_rows()
 
     def _on_day_filter_change(self, _):
         self._update_slot_menu()
         self._render_table()
 
-    def _on_slot_change(self, slot):
-        if slot == "No slots found": return
-        self.current_slot = slot
-        self.rows = self.all_data[self.current_slot]
+    def _on_slot_change(self, slot=None):
+        self._populate_rows()
+        self.search_var.set("")
         self._render_table()
-        self.status_label.configure(text=f"Switched to {slot} schedule")
+        self.status_label.configure(text=f"Switched to {self.current_slot} schedule")
 
     # ── Excel loading ────────────────────────────────────────
     def _load_excel(self):
@@ -683,20 +804,7 @@ class App(ctk.CTk):
                     "visible": True,
                 })
             
-            if messagebox.askyesno("Import", f"Load {len(new_rows)} rows? They will be distributed by Day & Time slot."):
-                for r in new_rows:
-                    d = r.get("day", "Friday").strip()
-                    t = r.get("time", "").strip()
-                    slot_key = f"{d} - {t}" if t else d
-                    
-                    if slot_key not in self.all_data:
-                        self.all_data[slot_key] = []
-                    self.all_data[slot_key].append(r)
-                
-                self._update_slot_menu()
-                self._save_all_data()
-                self._render_table()
-                self.status_label.configure(text=f"Imported {len(new_rows)} rows")
+            self._import_with_dedup(new_rows, source_label="Excel Import")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
@@ -746,17 +854,11 @@ class App(ctk.CTk):
             sl.pack(side="left")
             sl.bind("<Button-1>", lambda e, idx=i: self._show_error_detail(idx))
 
-            af = ctk.CTkFrame(rf, fg_color="transparent", width=300)
+            af = ctk.CTkFrame(rf, fg_color="transparent", width=180)
             af.pack(side="left", padx=4)
             StyledButton(af, text="✎ Edit", width=60, color=C["accent_purple"],
                 hover=C["accent_blue"],
                 command=lambda idx=i: self._edit_row_dialog(idx)).pack(side="left", padx=2, pady=6)
-            StyledButton(af, text="✓ Ack", width=65, color=C["accent_cyan"],
-                hover=C["accent_blue"],
-                command=lambda idx=i: self._set_status(idx, STATUS_ACK)).pack(side="left", padx=2, pady=6)
-            StyledButton(af, text="✔ Confirm", width=80, color=C["status_green"],
-                hover="#15803d",
-                command=lambda idx=i: self._set_status(idx, STATUS_CONF)).pack(side="left", padx=2, pady=6)
             StyledButton(af, text="🔄 Reset", width=65, color=C["text_muted"],
                 hover=C["hover"],
                 command=lambda idx=i: self._set_status(idx, STATUS_NOT_SENT)).pack(side="left", padx=2, pady=6)
@@ -817,9 +919,13 @@ class App(ctk.CTk):
                 f"Instructor: {row['name']}\nPhone: {row['phone']}\n\nError:\n{detail}")
 
     def _delete_row(self, idx):
-        name = self.rows[idx]["name"]
+        row_to_delete = self.rows[idx]
+        name = row_to_delete["name"]
         if messagebox.askyesno("Confirm Delete", f"Remove '{name}' from {self.current_slot}?"):
-            self.rows.pop(idx)
+            for slot_key, slot_rows in self.all_data.items():
+                if row_to_delete in slot_rows:
+                    slot_rows.remove(row_to_delete)
+                    break
             self._save_all_data()
             self._update_slot_menu()
             self._render_table()
@@ -829,8 +935,12 @@ class App(ctk.CTk):
         if count == 0:
             return
         if messagebox.askyesno("Confirm Delete", f"Delete {count} selected items from {self.current_slot}?"):
-            self.all_data[self.current_slot] = [r for r in self.rows if not (r["selected"] and r["visible"])]
-            self.rows = self.all_data[self.current_slot]
+            to_delete = [r for r in self.rows if r["selected"] and r["visible"]]
+            for r in to_delete:
+                for slot_key, slot_rows in self.all_data.items():
+                    if r in slot_rows:
+                        slot_rows.remove(r)
+                        break
             self._save_all_data()
             self._update_slot_menu()
             self._render_table()
@@ -888,14 +998,22 @@ class App(ctk.CTk):
                 self.all_data[slot_key] = []
                 
             self.all_data[slot_key].append(new_row)
-            self._update_slot_menu()
             self._save_all_data()
-            if slot_key == self.current_slot:
+            
+            day_filter = self.day_filter_var.get()
+            time_filter = self.slot_var.get()
+            matches_day = (day_filter == "All Days" or day_val == day_filter)
+            matches_time = (time_filter == "All slots" or time_val == time_filter)
+            
+            if matches_day and matches_time:
+                self._update_slot_menu()
                 self._render_table()
             else:
                 if messagebox.askyesno("Slot Changed", f"Instructor added to slot '{slot_key}'. Switch to that slot?"):
-                    self.slot_var.set(slot_key)
-                    self._on_slot_change(slot_key)
+                    self.day_filter_var.set(day_val)
+                    self.slot_var.set(time_val if time_val else "All slots")
+                    self._update_slot_menu()
+                    self._render_table()
             dlg.destroy()
 
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
@@ -937,7 +1055,12 @@ class App(ctk.CTk):
             fields[key] = entry
 
         def save_changes():
-            old_slot = self.current_slot
+            original_slot = None
+            for slot_k, slot_rows in self.all_data.items():
+                if row in slot_rows:
+                    original_slot = slot_k
+                    break
+                    
             new_day = fields["day"].get().strip() or "Friday"
             new_time = fields["time"].get().strip()
             new_slot = f"{new_day} - {new_time}" if new_time else new_day
@@ -950,23 +1073,33 @@ class App(ctk.CTk):
                 "time": new_time,
             }
             
-            if old_slot != new_slot:
+            if original_slot != new_slot:
                 if new_slot not in self.all_data:
                     self.all_data[new_slot] = []
                 
-                self.rows[idx].update(updated_data)
-                moved_row = self.rows.pop(idx)
-                self.all_data[new_slot].append(moved_row)
+                row.update(updated_data)
+                if original_slot and row in self.all_data[original_slot]:
+                    self.all_data[original_slot].remove(row)
+                self.all_data[new_slot].append(row)
                 
                 self._update_slot_menu()
                 self._save_all_data()
-                self._render_table()
                 
-                if messagebox.askyesno("Slot Changed", f"Moved to slot '{new_slot}'. Switch to that slot?"):
-                    self.slot_var.set(new_slot)
-                    self._on_slot_change(new_slot)
+                day_filter = self.day_filter_var.get()
+                time_filter = self.slot_var.get()
+                matches_day = (day_filter == "All Days" or new_day == day_filter)
+                matches_time = (time_filter == "All slots" or new_time == time_filter)
+                
+                if matches_day and matches_time:
+                    self._render_table()
+                else:
+                    if messagebox.askyesno("Slot Changed", f"Moved to slot '{new_slot}'. Switch to that slot?"):
+                        self.day_filter_var.set(new_day)
+                        self.slot_var.set(new_time if new_time else "All slots")
+                        self._update_slot_menu()
+                        self._render_table()
             else:
-                self.rows[idx].update(updated_data)
+                row.update(updated_data)
                 self._save_all_data()
                 self._render_table()
             dlg.destroy()
@@ -999,8 +1132,14 @@ class App(ctk.CTk):
         ctk.CTkLabel(top_f, text="Grid Data Import", font=ctk.CTkFont(size=22, weight="bold"),
                      text_color=C["accent_blue"]).pack(side="left")
         
+        # --- NEW: Visually guide the user on formatting ---
+        guide_frame = ctk.CTkFrame(content, fg_color=C["bg_sidebar"], corner_radius=6, border_width=1, border_color=C["accent_blue"])
+        guide_frame.pack(fill="x", pady=(0, 15))
+        guide_text = "💡 Excel/Sheets Format Required:   Column 1: Name   |   Column 2: Phone   |   Column 3: Group Code   |   Column 4: Day   |   Column 5: Time"
+        ctk.CTkLabel(guide_frame, text=guide_text, font=ctk.CTkFont(size=12, weight="bold"), text_color=C["accent_cyan"]).pack(pady=8, padx=10)
+        
         hdr = ctk.CTkFrame(content, height=30, fg_color=C["bg_sidebar"])
-        hdr.pack(fill="x", pady=(10, 2))
+        hdr.pack(fill="x", pady=(0, 2))
         cols_cfg = [("Name*", 170), ("Phone*", 130), ("Group Code*", 130), ("Day", 90), ("Time", 90)]
         for t, w in cols_cfg:
             ctk.CTkLabel(hdr, text=t, width=w, font=ctk.CTkFont(size=12, weight="bold"),
@@ -1024,12 +1163,17 @@ class App(ctk.CTk):
         def paste_excel():
             try:
                 raw = self.clipboard_get()
-            except:
-                messagebox.showerror("Error", "Clipboard is empty.")
+            except tk.TclError:
+                messagebox.showerror("Error", "Clipboard is empty or contains non-text data.")
                 return
             
             lines = [l for l in raw.strip().split('\n') if l.strip()]
             if not lines: return
+
+            # Clear existing inputs to prevent mixing old and new data
+            for r in entry_rows:
+                for val in r.values():
+                    val.delete(0, "end")
 
             while len(entry_rows) < len(lines):
                 add_row()
@@ -1040,7 +1184,6 @@ class App(ctk.CTk):
                 fields = ["name", "phone", "group_code", "day", "time"]
                 for pi, val in enumerate(parts):
                     if pi < len(fields):
-                        row[fields[pi]].delete(0, "end")
                         row[fields[pi]].insert(0, val.strip())
 
         def validate_import():
@@ -1048,7 +1191,7 @@ class App(ctk.CTk):
             errors = []
             for i, row in enumerate(entry_rows):
                 vals = {k: e.get().strip() for k, e in row.items()}
-                if not any(vals.values()): continue
+                if not any(vals.values()): continue # Skip entirely blank rows
                 
                 missing = []
                 if not vals["name"]: missing.append("Name")
@@ -1067,23 +1210,12 @@ class App(ctk.CTk):
             
             if not final: return
             
-            for r in final:
-                d = r.get("day", "Friday").strip()
-                t = r.get("time", "").strip()
-                slot_key = f"{d} - {t}" if t else d
-                
-                if slot_key not in self.all_data:
-                    self.all_data[slot_key] = []
-                self.all_data[slot_key].append(r)
-                
-            self._update_slot_menu()
-            self._save_all_data()
-            self._render_table()
+            self._import_with_dedup(final, source_label="Bulk Paste")
             dlg.destroy()
 
         StyledButton(top_f, text="📋 Paste from Excel", width=160, color=C["accent_purple"],
                      command=paste_excel).pack(side="right", padx=5)
-        StyledButton(top_f, text="➕ Add Row", width=100, color=C["bg_input"], text_color=C["text_primary"],
+        StyledButton(top_f, text="➕ Add Blank Row", width=120, color=C["bg_input"], text_color=C["text_primary"],
                      command=add_row).pack(side="right", padx=5)
 
         for _ in range(10): add_row()
@@ -1092,7 +1224,7 @@ class App(ctk.CTk):
         btn_f.pack(fill="x", pady=(20, 0))
         StyledButton(btn_f, text="Cancel", color=C["bg_input"], text_color=C["text_primary"],
                      command=dlg.destroy).pack(side="left", padx=5, expand=True)
-        StyledButton(btn_f, text="Confirm & Import", color=C["success"],
+        StyledButton(btn_f, text="Confirm & Import", color=C["status_green"], hover="#15803d",
                      command=validate_import).pack(side="right", padx=5, expand=True)
 
     def _update_stats(self):
@@ -1148,31 +1280,37 @@ class App(ctk.CTk):
 
         progress_dlg = ctk.CTkToplevel(self)
         progress_dlg.title("Sending Messages")
-        progress_dlg.geometry("350x200")
+        progress_dlg.geometry("380x280")
         progress_dlg.configure(fg_color=C["bg_dark"])
         progress_dlg.transient(self)
         progress_dlg.grab_set()
 
         self.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() // 2) - 175
-        y = self.winfo_y() + (self.winfo_height() // 2) - 100
+        x = self.winfo_x() + (self.winfo_width() // 2) - 190
+        y = self.winfo_y() + (self.winfo_height() // 2) - 140
         progress_dlg.geometry(f"+{x}+{y}")
 
-        ctk.CTkLabel(progress_dlg, text="Sending Batch...", font=ctk.CTkFont(size=16, weight="bold"), text_color=C["accent_blue"]).pack(pady=(20, 10))
+        self._send_title_lbl = ctk.CTkLabel(progress_dlg, text="📡 Sending Batch...", font=ctk.CTkFont(size=16, weight="bold"), text_color=C["accent_blue"])
+        self._send_title_lbl.pack(pady=(20, 6))
         
-        progress_bar = ctk.CTkProgressBar(progress_dlg, width=280, progress_color=C["accent_blue"])
-        progress_bar.pack(pady=10)
+        progress_bar = ctk.CTkProgressBar(progress_dlg, width=300, progress_color=C["accent_blue"])
+        progress_bar.pack(pady=8)
         progress_bar.set(0)
 
         progress_label = ctk.CTkLabel(progress_dlg, text=f"0 / {len(targets)} sent", text_color=C["text_secondary"], font=ctk.CTkFont(size=12))
         progress_label.pack()
+
+        # Countdown timer label — shows the delay between messages
+        countdown_label = ctk.CTkLabel(progress_dlg, text="", text_color=C["accent_cyan"], font=ctk.CTkFont(size=13, weight="bold"))
+        countdown_label.pack(pady=(6, 0))
 
         def stop_sending():
             self._stop_sending()
             if progress_dlg.winfo_exists():
                 progress_dlg.destroy()
 
-        StyledButton(progress_dlg, text="⛔ Stop", color=C["danger"], hover="#991b1b", command=stop_sending, width=100).pack(pady=(15, 0))
+        self._send_stop_btn = StyledButton(progress_dlg, text="⛔ Stop", color=C["danger"], hover="#991b1b", command=stop_sending, width=100)
+        self._send_stop_btn.pack(pady=(12, 0))
 
         progress_state = {"count": 0, "total": len(targets)}
 
@@ -1183,16 +1321,75 @@ class App(ctk.CTk):
                 if progress_dlg.winfo_exists():
                     progress_bar.set(progress_state["count"] / progress_state["total"])
                     progress_label.configure(text=f"{progress_state['count']} / {progress_state['total']} sent")
+                    # Clear countdown when a message just finished sending
+                    countdown_label.configure(text="")
             self.after(0, update_ui)
 
-        def on_done():
-            self.after(0, lambda: self.status_label.configure(text="Batch complete."))
-            def close_dlg():
+        def on_delay(remaining, total_delay):
+            def update_timer():
                 if progress_dlg.winfo_exists():
-                    progress_dlg.destroy()
-            self.after(1000, close_dlg)
+                    if remaining > 0:
+                        countdown_label.configure(
+                            text=f"⏳ Next message in {remaining}s …"
+                        )
+                    else:
+                        countdown_label.configure(text="Sending next message…")
+            self.after(0, update_timer)
 
-        self.engine.send_batch(targets, tpl, on_progress=on_prog, on_complete=on_done)
+        def on_done():
+            sent_ok = sum(
+                1 for t in targets
+                if self.rows[t["row_index"]]["status"] in (STATUS_SENT, STATUS_ACK, STATUS_CONF)
+            )
+            failed = len(targets) - sent_ok
+
+            def show_completion():
+                self.status_label.configure(text="Batch complete.")
+                self._notify_batch_complete(
+                    total=len(targets), sent_ok=sent_ok, slot=self.current_slot
+                )
+
+                # Transform progress dialog into a success/complete popup
+                if progress_dlg.winfo_exists():
+                    # Clear existing widgets
+                    for child in progress_dlg.winfo_children():
+                        child.destroy()
+
+                    progress_dlg.geometry("400x300")
+                    # Re-center
+                    self.update_idletasks()
+                    cx = self.winfo_x() + (self.winfo_width() // 2) - 200
+                    cy = self.winfo_y() + (self.winfo_height() // 2) - 150
+                    progress_dlg.geometry(f"+{cx}+{cy}")
+
+                    if failed == 0:
+                        icon = "✅"
+                        title = "Batch Complete!"
+                        detail = f"All {sent_ok} messages were sent successfully."
+                        title_color = C["status_green"]
+                    else:
+                        icon = "⚠️"
+                        title = "Batch Finished"
+                        detail = f"{sent_ok} of {len(targets)} sent successfully.\n{failed} message(s) failed."
+                        title_color = C["status_yellow"]
+
+                    ctk.CTkLabel(progress_dlg, text=icon, font=ctk.CTkFont(size=48)).pack(pady=(25, 5))
+                    ctk.CTkLabel(progress_dlg, text=title, font=ctk.CTkFont(size=20, weight="bold"), text_color=title_color).pack(pady=(0, 8))
+                    ctk.CTkLabel(progress_dlg, text=detail, font=ctk.CTkFont(size=13), text_color=C["text_secondary"], wraplength=340).pack(pady=(0, 15))
+                    ctk.CTkLabel(progress_dlg, text=f"Slot: {self.current_slot}", font=ctk.CTkFont(size=11), text_color=C["text_muted"]).pack()
+
+                    StyledButton(progress_dlg, text="OK", width=120, color=C["accent_blue"],
+                                 command=progress_dlg.destroy).pack(pady=(15, 0))
+
+                    # Play notification sound
+                    try:
+                        winsound.MessageBeep(winsound.MB_ICONASTERISK)
+                    except Exception:
+                        pass
+
+            self.after(0, show_completion)
+
+        self.engine.send_batch(targets, tpl, on_progress=on_prog, on_complete=on_done, on_delay=on_delay)
         self.status_label.configure(text=f"Sending {len(targets)} messages...")
 
     def _stop_sending(self):
@@ -1265,11 +1462,304 @@ class App(ctk.CTk):
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save template:\n{str(e)}")
 
+
+    def _on_search_change(self, *_):
+        query = self.search_var.get().strip().lower()
+        visible_count = 0
+        for row in self.rows:
+            if not query:
+                row["visible"] = True
+                visible_count += 1
+            else:
+                match = (
+                    query in row.get("name", "").lower()
+                    or query in row.get("phone", "").lower()
+                    or query in row.get("group_code", "").lower()
+                )
+                row["visible"] = match
+                if match:
+                    visible_count += 1
+
+        total = len(self.rows)
+        if query:
+            self.search_result_lbl.configure(
+                text=f"{visible_count} of {total} shown",
+                text_color=C["accent_cyan"] if visible_count else C["danger"],
+            )
+        else:
+            self.search_result_lbl.configure(text="")
+
+        self._render_table()
+
+    def _clear_search(self):
+        self.search_var.set("")
+        self.search_entry.focus()
+
+    # ── Feature 2: Duplicate Detection on Import ──────────
+    def _get_all_existing_phones(self):
+        """Return a set of every phone number currently stored across all slots."""
+        phones = set()
+        for rows in self.all_data.values():
+            for row in rows:
+                p = row.get("phone", "").strip()
+                if p:
+                    phones.add(p)
+        return phones
+
+    def _import_with_dedup(self, new_rows: list, source_label: str = "Import"):
+        """
+        Deduplicate new_rows against existing data, show a report, then import.
+        """
+        existing_phones = self._get_all_existing_phones()
+
+        clean_rows = []
+        duplicate_rows = []
+
+        for row in new_rows:
+            if row["phone"] in existing_phones:
+                duplicate_rows.append(row)
+            else:
+                clean_rows.append(row)
+                existing_phones.add(row["phone"])
+
+        if duplicate_rows:
+            lines = [f"  • {r['name']}  ({r['phone']})" for r in duplicate_rows[:10]]
+            if len(duplicate_rows) > 10:
+                lines.append(f"  … and {len(duplicate_rows) - 10} more")
+            summary = "\n".join(lines)
+
+            msg = (
+                f"{source_label} found {len(duplicate_rows)} duplicate phone number(s) "
+                f"already in your data:\n\n{summary}\n\n"
+                f"Click YES to skip duplicates and import {len(clean_rows)} new rows.\n"
+                f"Click NO to import all {len(new_rows)} rows anyway."
+            )
+            skip_dupes = messagebox.askyesno("Duplicates Found", msg)
+            rows_to_import = clean_rows if skip_dupes else new_rows
+        else:
+            rows_to_import = clean_rows
+
+        if not rows_to_import:
+            messagebox.showinfo(source_label, "No new rows to import.")
+            return
+
+        for r in rows_to_import:
+            d = r.get("day", "Friday").strip()
+            t = r.get("time", "").strip()
+            slot_key = f"{d} - {t}" if t else d
+            if slot_key not in self.all_data:
+                self.all_data[slot_key] = []
+            self.all_data[slot_key].append(r)
+
+        self._update_slot_menu()
+        self._save_all_data()
+        self._render_table()
+        self.status_label.configure(
+            text=f"Imported {len(rows_to_import)} rows"
+            + (f" ({len(duplicate_rows)} duplicates skipped)" if duplicate_rows else "")
+        )
+
+    # ── Feature 3: Scheduled Send ─────────────────────────
+    def _open_schedule_dialog(self):
+        """Show a date/time picker and schedule _send_all for the chosen moment."""
+        import datetime
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title(f"Schedule Send — {self.current_slot}")
+        dlg.geometry("380x320")
+        dlg.configure(fg_color=C["bg_dark"])
+        dlg.transient(self)
+        dlg.grab_set()
+
+        self.update_idletasks()
+        x = self.winfo_x() + self.winfo_width() // 2 - 190
+        y = self.winfo_y() + self.winfo_height() // 2 - 160
+        dlg.geometry(f"+{x}+{y}")
+
+        content = ctk.CTkFrame(dlg, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=24, pady=20)
+
+        ctk.CTkLabel(
+            content, text="Schedule Batch Send",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=C["accent_cyan"],
+        ).pack(pady=(0, 4))
+
+        ctk.CTkLabel(
+            content,
+            text=f"All unsent messages in  '{self.current_slot}'  will be sent at the chosen time.",
+            font=ctk.CTkFont(size=11),
+            text_color=C["text_muted"],
+            wraplength=320,
+        ).pack(pady=(0, 18))
+
+        now = datetime.datetime.now()
+        date_row = ctk.CTkFrame(content, fg_color="transparent")
+        date_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(date_row, text="Date (DD/MM/YYYY):", width=160,
+                     text_color=C["text_secondary"], anchor="w").pack(side="left")
+        date_entry = ctk.CTkEntry(date_row, width=120, fg_color=C["bg_input"])
+        date_entry.insert(0, now.strftime("%d/%m/%Y"))
+        date_entry.pack(side="left")
+
+        time_row = ctk.CTkFrame(content, fg_color="transparent")
+        time_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(time_row, text="Time (HH:MM, 24 h):", width=160,
+                     text_color=C["text_secondary"], anchor="w").pack(side="left")
+        time_entry = ctk.CTkEntry(time_row, width=80, fg_color=C["bg_input"])
+        time_entry.insert(0, (now + datetime.timedelta(minutes=5)).strftime("%H:%M"))
+        time_entry.pack(side="left")
+
+        err_lbl = ctk.CTkLabel(content, text="", text_color=C["danger"],
+                               font=ctk.CTkFont(size=11))
+        err_lbl.pack(pady=(8, 0))
+
+        def confirm():
+            import datetime
+            try:
+                dt_str = f"{date_entry.get().strip()} {time_entry.get().strip()}"
+                target_dt = datetime.datetime.strptime(dt_str, "%d/%m/%Y %H:%M")
+            except ValueError:
+                err_lbl.configure(text="Invalid format. Use DD/MM/YYYY and HH:MM.")
+                return
+
+            delay_secs = (target_dt - datetime.datetime.now()).total_seconds()
+            if delay_secs <= 0:
+                err_lbl.configure(text="Chosen time is in the past. Pick a future time.")
+                return
+
+            self._cancel_schedule(silent=True)
+
+            self._schedule_target_dt = target_dt
+
+            def _fire():
+                self.after(0, self._send_all)
+                self.after(0, lambda: self.status_label.configure(
+                    text=f"⏰ Scheduled send for '{self.current_slot}' fired!",
+                    text_color=C["accent_cyan"],
+                ))
+                self._schedule_timer = None
+                self._schedule_target_dt = None
+
+            self._schedule_timer = threading.Timer(delay_secs, _fire)
+            self._schedule_timer.daemon = True
+            self._schedule_timer.start()
+            self._start_schedule_countdown()
+
+            self.status_label.configure(
+                text=f"⏰ Scheduled: {target_dt.strftime('%d/%m %H:%M')} — {self.current_slot}",
+                text_color=C["accent_cyan"],
+            )
+            dlg.destroy()
+
+            # ── Immediate "Scheduled!" confirmation popup ──
+            confirm_dlg = ctk.CTkToplevel(self)
+            confirm_dlg.title("Scheduled")
+            confirm_dlg.geometry("380x260")
+            confirm_dlg.configure(fg_color=C["bg_dark"])
+            confirm_dlg.transient(self)
+            confirm_dlg.grab_set()
+
+            self.update_idletasks()
+            cx = self.winfo_x() + (self.winfo_width() // 2) - 190
+            cy = self.winfo_y() + (self.winfo_height() // 2) - 130
+            confirm_dlg.geometry(f"+{cx}+{cy}")
+
+            ctk.CTkLabel(confirm_dlg, text="⏰", font=ctk.CTkFont(size=48)).pack(pady=(20, 5))
+            ctk.CTkLabel(
+                confirm_dlg, text="Messages Scheduled!",
+                font=ctk.CTkFont(size=20, weight="bold"),
+                text_color=C["accent_cyan"],
+            ).pack(pady=(0, 6))
+            ctk.CTkLabel(
+                confirm_dlg,
+                text=f"Your batch will be sent automatically at\n{target_dt.strftime('%d/%m/%Y  %H:%M')}\n\nSlot: {self.current_slot}",
+                font=ctk.CTkFont(size=13),
+                text_color=C["text_secondary"],
+                wraplength=340,
+                justify="center",
+            ).pack(pady=(0, 12))
+            StyledButton(
+                confirm_dlg, text="OK", width=120, color=C["accent_blue"],
+                command=confirm_dlg.destroy,
+            ).pack(pady=(5, 0))
+
+            try:
+                import winsound
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            except Exception:
+                pass
+
+        btn_row = ctk.CTkFrame(content, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(20, 0))
+        StyledButton(btn_row, text="Cancel", color=C["bg_input"],
+                     text_color=C["text_primary"], hover=C["hover"],
+                     command=dlg.destroy).pack(side="left", padx=4, expand=True)
+        StyledButton(btn_row, text="Set Schedule", color=C["accent_cyan"],
+                     hover=C["accent_blue"], command=confirm).pack(side="right", padx=4, expand=True)
+
+    def _start_schedule_countdown(self):
+        """Update the status bar every second with time remaining."""
+        import datetime
+
+        def tick():
+            if not self._schedule_target_dt:
+                return
+            remaining = self._schedule_target_dt - datetime.datetime.now()
+            if remaining.total_seconds() <= 0:
+                return
+            mins, secs = divmod(int(remaining.total_seconds()), 60)
+            hrs, mins = divmod(mins, 60)
+            if hrs:
+                label = f"⏰ Scheduled in {hrs}h {mins}m {secs}s — {self.current_slot}"
+            else:
+                label = f"⏰ Scheduled in {mins}m {secs}s — {self.current_slot}"
+            self.status_label.configure(text=label, text_color=C["accent_cyan"])
+            self._schedule_countdown_job = self.after(1000, tick)
+
+        tick()
+
+    def _cancel_schedule(self, silent=False):
+        """Cancel a pending scheduled send."""
+        if self._schedule_timer:
+            self._schedule_timer.cancel()
+            self._schedule_timer = None
+        if self._schedule_countdown_job:
+            self.after_cancel(self._schedule_countdown_job)
+            self._schedule_countdown_job = None
+        self._schedule_target_dt = None
+        if not silent:
+            self.status_label.configure(text="Schedule cancelled.", text_color=C["text_muted"])
+
+    # ── Feature 4: Desktop Notification on Batch Complete ─
+    def _notify_batch_complete(self, total: int, sent_ok: int, slot: str):
+        """Fire a desktop notification summarising the completed batch."""
+        failed = total - sent_ok
+        title = "DECI Automation — Batch Complete ✅"
+
+        if failed == 0:
+            msg = f"All {total} messages sent successfully.\nSlot: {slot}"
+        else:
+            msg = (
+                f"{sent_ok}/{total} messages sent.\n"
+                f"{failed} failed — check the queue for details.\n"
+                f"Slot: {slot}"
+            )
+
+        try:
+            from plyer import notification
+            notification.notify(
+                title=title,
+                message=msg,
+                app_name="DECI Automation",
+                timeout=8,
+            )
+        except Exception:
+            print(f"[DECI] Batch done: {msg}")
+
     def _start_app_tour(self):
         def select_dummy_for_preview():
-            # If no rows, we can't select, but preview box will show dummy anyway
             if self.rows:
-                # Select first row for demo
                 self.rows[0]["selected"] = True
                 if self.row_widgets and self.row_widgets[0]:
                     self.row_widgets[0]["cb_var"].set(True)
@@ -1300,14 +1790,14 @@ class App(ctk.CTk):
             },
             {
                 "title": "5. Bulk Paste 📋",
-                "msg": "The shortcut to efficiency. Forget saving files. Copy a range from Google Sheets or Excel and paste it directly into the grid here.",
+                "msg": "The shortcut to efficiency. Copy directly from Excel and paste it into the grid. Just make sure your columns match: Name | Phone | Group | Day | Time.",
                 "widget": self.bulk_paste_btn
             },
             {
                 "title": "6. Account Bodyguard 🛡️",
-                "msg": "The 'Delay' (20-40s) is vital. It prevents WhatsApp from flagging you as a bot. Never set this to 0!",
+                "msg": "The 'Delay' (20-40s) is vital. It prevents WhatsApp from flagging you as a spam bot. Never set this to 0!",
                 "widget": self.config_frame,
-                "final_msg": "You're all set, Osama! 🚀\n\nThe system is now configured with the latest coordination templates. Remember to check your WhatsApp Web connection before starting a batch."
+                "final_msg": "You're all set! 🚀\n\nThe system is now configured. Remember to check your WhatsApp Web connection before starting a batch."
             }
         ]
         TourGuide(self, tour_steps)

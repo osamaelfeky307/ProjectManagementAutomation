@@ -56,7 +56,7 @@ class MessageEngine:
             return False, str(exc)
 
     def send_batch(self, recipients: list[dict], template: str,
-                   on_progress=None, on_complete=None):
+                   on_progress=None, on_complete=None, on_delay=None):
         """
         Send messages to a batch of recipients on a background thread.
 
@@ -64,6 +64,7 @@ class MessageEngine:
         `template` — message string with {name} / {grade} placeholders
         `on_progress(row_index, success, detail)` — called after each send
         `on_complete()` — called when batch finishes
+        `on_delay(seconds_remaining, total_delay)` — called every second during delay
         """
         self.reset()
 
@@ -83,10 +84,16 @@ class MessageEngine:
                 # Random delay between messages (skip after the last one)
                 if i < len(recipients) - 1 and not self._stop_event.is_set():
                     delay = random.randint(self.min_delay, self.max_delay)
-                    for _ in range(delay):
+                    for sec in range(delay):
                         if self._stop_event.is_set():
                             break
+                        remaining = delay - sec
+                        if on_delay:
+                            on_delay(remaining, delay)
                         time.sleep(1)
+                    # Signal delay ended (0 remaining)
+                    if on_delay and not self._stop_event.is_set():
+                        on_delay(0, delay)
 
             if on_complete:
                 on_complete()

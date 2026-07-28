@@ -30,33 +30,50 @@ COLORS = {
 # --- Default Templates ---
 DEFAULT_TEMPLATES = {
     "1. Day-Before Reminder": (
-        "Hello Eng. {name},\n\n"
-        "This is a gentle reminder that you have a session for group {group_code} scheduled for tomorrow at {time}.\n"
-        "Please ensure you are prepared.\n\n"
-        "Thank you,\nEYouth coordination"
+        "Hello Eng. *{name}*, 👋\n\n"
+        "This is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n"
+        "Please make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\n"
+        "Thank you,\neyouth Coordination"
     ),
     "2. Pre-Session Readiness": (
-        "Hello Eng. {name},\n\n"
-        "Your session for group {group_code} at {time} is starting soon.\n"
-        "Please confirm that you are ready to begin.\n\n"
-        "Best regards,\nEYouth coordination"
+        "Hello Eng. *{name}*, 🚨 \n\n"
+        "Your session for group *{group_code}* at *{time}* will begin shortly.\n"
+        "Please confirm that you are ready to start.\n\n"
+        "• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n"
+        "• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n"
+        "• Please note that only 2 breaks are allowed during the session — no more and no less.\n"
+        "• During breaks, please share a visible timer on screen.\n\n"
+        "Thank you,\neyouth Coordination"
     ),
-    "3. Session Closing Reminder": (
-        "Hello Eng. {name},\n\n"
-        "Your session for group {group_code} is nearing its end.\n"
-        "Please remember to close the session exactly on time—not before and not after.\n\n"
-        "Thank you for your cooperation."
+    "3. Waiting Room Reminder": (
+        "Hello Eng. *{name}*, 👥🚨 \n\n"
+        "Students for group *{group_code}* are currently waiting in the room.\n\n"
+        "Please start admitting them immediately"
     ),
-    "4. Post-Session Thank You": (
-        "Dear Eng. {name},\n\n"
-        "Thank you for completing today's {group_code} session. "
-        "We appreciate your hard work and dedication.\n\n"
-        "Best regards,\nEYouth coordination"
+    "4. Attendance Reminder": (
+        "Hello Eng. *{name}*, 📝\n\n"
+        "Friendly reminder to take attendance for group *{group_code}* before ending the session."
+    ),
+    "5. Session Closing": (
+        "Hello Eng. *{name}*, ⏰\n\n"
+        "Your session for group *{group_code}* is nearing its scheduled end time.\n\n"
+        "Please make sure to close the session exactly on time (not earlier and not later)"
+    ),
+    "6. Post-Session Thanks": (
+        "Hello Eng. *{name}*, 🌟\n\n"
+        "Thank you for completing today's session for group *{group_code}*.\n\n"
+        "We appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️"
+    ),
+    "7. Session Time Exceeded": (
+        "Hello Eng. *{name}*, ⚠️\n\n"
+        "Your session for group *{group_code}* has exceeded the scheduled end time.\n\n"
+        "Please conclude the session and close the meeting as soon as possible "
     ),
 }
 
 TEMPLATES_FILE = os.path.join(os.path.dirname(__file__), "templates.json")
 DATA_FILE = os.path.join(os.path.dirname(__file__), "instructor_data.json")
+TRIGGERS_FILE = os.path.join(os.path.dirname(__file__), "triggers.json")
 
 
 def load_templates():

@@ -5,6 +5,8 @@ from tkinter import filedialog, messagebox
 from app_config import COLORS as C, load_templates, save_templates
 from ui_components import StatusDot, StyledButton, SidebarButton
 from engine import MessageEngine
+from schedule_manager import ScheduleMixin
+from coordinator_ui import CoordinatorApp, choose_recipient_type
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -202,7 +204,7 @@ class TourGuide(ctk.CTkToplevel):
                 )
 
 
-class App(ctk.CTk):
+class App(ctk.CTk, ScheduleMixin):
     def __init__(self):
         super().__init__()
         self.title("DECI Automation — EYouth coordination")
@@ -218,6 +220,7 @@ class App(ctk.CTk):
             for row in self.all_data[slot]:
                 row["phone"] = normalize_phone(row.get("phone", ""))
 
+        new_all_data = {}
         for slot_name, rows in self.all_data.items():
             for row in rows:
                 if "day" not in row:
@@ -226,6 +229,21 @@ class App(ctk.CTk):
                         row["day"] = parts[0]
                     else:
                         row["day"] = "Friday"
+                row["day"] = row["day"].strip().title()
+                
+            if " - " in slot_name:
+                parts = slot_name.split(" - ", 1)
+                new_slot = f"{parts[0].strip().title()} - {parts[1]}"
+            else:
+                new_slot = slot_name.strip().title()
+                if slot_name.lower() == "general":
+                    new_slot = "General"
+                    
+            if new_slot not in new_all_data:
+                new_all_data[new_slot] = []
+            new_all_data[new_slot].extend(rows)
+            
+        self.all_data = new_all_data
 
         for s in ["9:00 AM", "2:00 PM", "5:00 PM", "General"]:
             if s in self.all_data and not self.all_data[s]:
@@ -236,14 +254,18 @@ class App(ctk.CTk):
 
         self.row_widgets = []
         self.last_selected_index = None # Track selection for preview
-        self._schedule_timer = None
-        self._schedule_target_dt = None
+        self._is_sending = False
+        self._schedules = []
+        self._schedule_timers = {}
         self._schedule_countdown_job = None
 
         self._build_sidebar()
         self._build_main()
         self._update_slot_menu()
         self._render_table()
+
+        self._load_schedules()
+        self._start_global_countdown()
 
     @property
     def current_slot(self):
@@ -338,14 +360,14 @@ class App(ctk.CTk):
 
         self.logo_title = ctk.CTkLabel(
             self.logo_inner,
-            text="DECI Automation",
+            text="WhatsApp Automation",
             font=ctk.CTkFont(size=21, weight="bold")
         )
         self.logo_title.pack()
 
         self.logo_subtitle = ctk.CTkLabel(
             self.logo_inner,
-            text="EYouth Coordination by Osama Elfeky",
+            text="Coordination by Osama Elfeky",
             font=ctk.CTkFont(size=12),
             text_color=C["text_secondary"]
         )
@@ -514,7 +536,7 @@ class App(ctk.CTk):
         # Day Filter
         ctk.CTkLabel(ab, text="Day Filter:", text_color=C["text_secondary"]).pack(side="left", padx=(16, 4))
         self.day_filter_menu = ctk.CTkOptionMenu(ab, variable=self.day_filter_var, width=120,
-            values=["All Days", "Friday", "Saturday"],
+            values=["All Days", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
             fg_color=C["bg_input"], button_color=C["accent_blue"],
             command=self._on_day_filter_change)
         self.day_filter_menu.pack(side="left", padx=4)
@@ -537,10 +559,10 @@ class App(ctk.CTk):
         ab2.pack(fill="x", pady=(1, 0))
         ab2.pack_propagate(False)
 
-        StyledButton(ab2, text="🕒 Schedule Send", color=C["accent_purple"],
+        StyledButton(ab2, text="⏰ Schedule Manager", color=C["accent_purple"],
                      hover=C["accent_blue"],
                      command=self._open_schedule_dialog).pack(side="left", padx=(16, 4), pady=6)
-        StyledButton(ab2, text="⛔ Cancel Schedule", color=C["text_muted"],
+        StyledButton(ab2, text="⛔ Cancel All", color=C["text_muted"],
                      hover=C["hover"], command=self._cancel_schedule
                      ).pack(side="left", padx=4, pady=6)
 
@@ -797,7 +819,7 @@ class App(ctk.CTk):
                     "name": str(r[0] or ""),
                     "phone": normalize_phone(r[1]),
                     "group_code": str(r[2] or ""),
-                    "day": str(r[3] or "Friday"),
+                    "day": str(r[3] or "Friday").strip().title(),
                     "time": str(r[4] or ""),
                     "status": STATUS_NOT_SENT,
                     "selected": False,
@@ -886,27 +908,38 @@ class App(ctk.CTk):
                 if w:
                     w["cb_var"].set(val)
 
-    def _set_status(self, idx, status, detail=None):
-        self.rows[idx]["status"] = status
+    def _set_status(self, row, status, detail=None):
+        if isinstance(row, int):
+            row_dict = self.rows[row]
+            idx = row
+        else:
+            row_dict = row
+            try:
+                idx = self.rows.index(row_dict)
+            except ValueError:
+                idx = None
+
+        row_dict["status"] = status
         if detail:
-            self.rows[idx]["error_detail"] = detail
+            row_dict["error_detail"] = detail
         
-        w = self.row_widgets[idx]
-        if w:
-            color = STATUS_COLORS.get(status, C["text_muted"])
-            w["dot"].set_color(color)
-            
-            display_text = status
-            if status == STATUS_FAILED and detail:
-                display_text = f"{STATUS_FAILED} (!)"
-            
-            w["status_lbl"].configure(text=display_text, text_color=color)
-            
-            if status == STATUS_FAILED:
-                err_msg = detail or "Unknown error"
-                self.status_label.configure(text=f"Error: {err_msg}", text_color=C["status_red"])
-                messagebox.showerror("Send Failed", 
-                    f"Failed to send message to:\n{self.rows[idx]['name']} ({self.rows[idx]['phone']})\n\nError:\n{err_msg}")
+        if idx is not None:
+            w = self.row_widgets[idx]
+            if w:
+                color = STATUS_COLORS.get(status, C["text_muted"])
+                w["dot"].set_color(color)
+                
+                display_text = status
+                if status == STATUS_FAILED and detail:
+                    display_text = f"{STATUS_FAILED} (!)"
+                
+                w["status_lbl"].configure(text=display_text, text_color=color)
+                
+                if status == STATUS_FAILED:
+                    err_msg = detail or "Unknown error"
+                    self.status_label.configure(text=f"Error: {err_msg}", text_color=C["status_red"])
+                    messagebox.showerror("Send Failed", 
+                        f"Failed to send message to:\n{row_dict['name']} ({row_dict['phone']})\n\nError:\n{err_msg}")
         
         self._update_stats()
         self._save_all_data()
@@ -976,7 +1009,7 @@ class App(ctk.CTk):
             fields[key] = entry
 
         def save():
-            day_val = fields["day"].get().strip() or "Friday"
+            day_val = (fields["day"].get().strip() or "Friday").title()
             time_val = fields["time"].get().strip()
             slot_key = f"{day_val} - {time_val}" if time_val else day_val
 
@@ -1061,7 +1094,7 @@ class App(ctk.CTk):
                     original_slot = slot_k
                     break
                     
-            new_day = fields["day"].get().strip() or "Friday"
+            new_day = (fields["day"].get().strip() or "Friday").title()
             new_time = fields["time"].get().strip()
             new_slot = f"{new_day} - {new_time}" if new_time else new_day
                 
@@ -1255,15 +1288,26 @@ class App(ctk.CTk):
             return
         self._do_send(targets)
 
-    def _do_send(self, targets):
+    def _do_send(self, targets, tpl=None, slot_name=None, schedule_id=None):
+        self._is_sending = True
+        if tpl is None:
+            tpl = self._get_template_text()
+        if slot_name is None:
+            slot_name = self.current_slot
+
         # CHECK IF ALREADY SENT
-        already_sent = [t["name"] for t in targets if t["status"] in (STATUS_SENT, STATUS_ACK, STATUS_CONF)]
+        already_sent = []
+        for t in targets:
+            row_dict = t["row_index"] if not isinstance(t["row_index"], int) else self.rows[t["row_index"]]
+            if row_dict["status"] in (STATUS_SENT, STATUS_ACK, STATUS_CONF):
+                already_sent.append(row_dict["name"])
         
         if already_sent:
             msg = f"The following instructors are already marked as Sent/Confirmed:\n\n" + \
                   "\n".join(already_sent[:5]) + ("\n..." if len(already_sent) > 5 else "") + \
                   "\n\nPlease reset their status to 'Not Sent' before sending again."
             messagebox.showwarning("Already Sent", msg)
+            self._is_sending = False
             return
 
         try:
@@ -1273,7 +1317,7 @@ class App(ctk.CTk):
             self.engine.wait_time = wt
         except ValueError:
             pass
-        tpl = self._get_template_text()
+
         for t in targets:
             t["phone"] = normalize_phone(t.get("phone", ""))
             self._set_status(t["row_index"], STATUS_SENDING)
@@ -1337,16 +1381,33 @@ class App(ctk.CTk):
             self.after(0, update_timer)
 
         def on_done():
+            self._is_sending = False
+            
+            def get_row_dict(target):
+                ri = target["row_index"]
+                if isinstance(ri, int):
+                    return self.rows[ri]
+                return ri
+                
             sent_ok = sum(
                 1 for t in targets
-                if self.rows[t["row_index"]]["status"] in (STATUS_SENT, STATUS_ACK, STATUS_CONF)
+                if get_row_dict(t)["status"] in (STATUS_SENT, STATUS_ACK, STATUS_CONF)
             )
             failed = len(targets) - sent_ok
+
+            if schedule_id:
+                for s in self._schedules:
+                    if s["id"] == schedule_id:
+                        s["status"] = "Completed" if failed == 0 else "Completed with failures"
+                        self._save_schedules()
+                        if hasattr(self, "_schedule_manager_dlg") and self._schedule_manager_dlg.winfo_exists():
+                            self._refresh_schedule_manager_list()
+                        break
 
             def show_completion():
                 self.status_label.configure(text="Batch complete.")
                 self._notify_batch_complete(
-                    total=len(targets), sent_ok=sent_ok, slot=self.current_slot
+                    total=len(targets), sent_ok=sent_ok, slot=slot_name
                 )
 
                 # Transform progress dialog into a success/complete popup
@@ -1376,7 +1437,7 @@ class App(ctk.CTk):
                     ctk.CTkLabel(progress_dlg, text=icon, font=ctk.CTkFont(size=48)).pack(pady=(25, 5))
                     ctk.CTkLabel(progress_dlg, text=title, font=ctk.CTkFont(size=20, weight="bold"), text_color=title_color).pack(pady=(0, 8))
                     ctk.CTkLabel(progress_dlg, text=detail, font=ctk.CTkFont(size=13), text_color=C["text_secondary"], wraplength=340).pack(pady=(0, 15))
-                    ctk.CTkLabel(progress_dlg, text=f"Slot: {self.current_slot}", font=ctk.CTkFont(size=11), text_color=C["text_muted"]).pack()
+                    ctk.CTkLabel(progress_dlg, text=f"Slot: {slot_name}", font=ctk.CTkFont(size=11), text_color=C["text_muted"]).pack()
 
                     StyledButton(progress_dlg, text="OK", width=120, color=C["accent_blue"],
                                  command=progress_dlg.destroy).pack(pady=(15, 0))
@@ -1394,6 +1455,7 @@ class App(ctk.CTk):
 
     def _stop_sending(self):
         self.engine.stop()
+        self._is_sending = False
         self.status_label.configure(text="Stopped.")
 
     # ── Excel export ─────────────────────────────────────────
@@ -1544,7 +1606,8 @@ class App(ctk.CTk):
             return
 
         for r in rows_to_import:
-            d = r.get("day", "Friday").strip()
+            d = r.get("day", "Friday").strip().title()
+            r["day"] = d
             t = r.get("time", "").strip()
             slot_key = f"{d} - {t}" if t else d
             if slot_key not in self.all_data:
@@ -1559,177 +1622,6 @@ class App(ctk.CTk):
             + (f" ({len(duplicate_rows)} duplicates skipped)" if duplicate_rows else "")
         )
 
-    # ── Feature 3: Scheduled Send ─────────────────────────
-    def _open_schedule_dialog(self):
-        """Show a date/time picker and schedule _send_all for the chosen moment."""
-        import datetime
-
-        dlg = ctk.CTkToplevel(self)
-        dlg.title(f"Schedule Send — {self.current_slot}")
-        dlg.geometry("380x320")
-        dlg.configure(fg_color=C["bg_dark"])
-        dlg.transient(self)
-        dlg.grab_set()
-
-        self.update_idletasks()
-        x = self.winfo_x() + self.winfo_width() // 2 - 190
-        y = self.winfo_y() + self.winfo_height() // 2 - 160
-        dlg.geometry(f"+{x}+{y}")
-
-        content = ctk.CTkFrame(dlg, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=24, pady=20)
-
-        ctk.CTkLabel(
-            content, text="Schedule Batch Send",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color=C["accent_cyan"],
-        ).pack(pady=(0, 4))
-
-        ctk.CTkLabel(
-            content,
-            text=f"All unsent messages in  '{self.current_slot}'  will be sent at the chosen time.",
-            font=ctk.CTkFont(size=11),
-            text_color=C["text_muted"],
-            wraplength=320,
-        ).pack(pady=(0, 18))
-
-        now = datetime.datetime.now()
-        date_row = ctk.CTkFrame(content, fg_color="transparent")
-        date_row.pack(fill="x", pady=4)
-        ctk.CTkLabel(date_row, text="Date (DD/MM/YYYY):", width=160,
-                     text_color=C["text_secondary"], anchor="w").pack(side="left")
-        date_entry = ctk.CTkEntry(date_row, width=120, fg_color=C["bg_input"])
-        date_entry.insert(0, now.strftime("%d/%m/%Y"))
-        date_entry.pack(side="left")
-
-        time_row = ctk.CTkFrame(content, fg_color="transparent")
-        time_row.pack(fill="x", pady=4)
-        ctk.CTkLabel(time_row, text="Time (HH:MM, 24 h):", width=160,
-                     text_color=C["text_secondary"], anchor="w").pack(side="left")
-        time_entry = ctk.CTkEntry(time_row, width=80, fg_color=C["bg_input"])
-        time_entry.insert(0, (now + datetime.timedelta(minutes=5)).strftime("%H:%M"))
-        time_entry.pack(side="left")
-
-        err_lbl = ctk.CTkLabel(content, text="", text_color=C["danger"],
-                               font=ctk.CTkFont(size=11))
-        err_lbl.pack(pady=(8, 0))
-
-        def confirm():
-            import datetime
-            try:
-                dt_str = f"{date_entry.get().strip()} {time_entry.get().strip()}"
-                target_dt = datetime.datetime.strptime(dt_str, "%d/%m/%Y %H:%M")
-            except ValueError:
-                err_lbl.configure(text="Invalid format. Use DD/MM/YYYY and HH:MM.")
-                return
-
-            delay_secs = (target_dt - datetime.datetime.now()).total_seconds()
-            if delay_secs <= 0:
-                err_lbl.configure(text="Chosen time is in the past. Pick a future time.")
-                return
-
-            self._cancel_schedule(silent=True)
-
-            self._schedule_target_dt = target_dt
-
-            def _fire():
-                self.after(0, self._send_all)
-                self.after(0, lambda: self.status_label.configure(
-                    text=f"⏰ Scheduled send for '{self.current_slot}' fired!",
-                    text_color=C["accent_cyan"],
-                ))
-                self._schedule_timer = None
-                self._schedule_target_dt = None
-
-            self._schedule_timer = threading.Timer(delay_secs, _fire)
-            self._schedule_timer.daemon = True
-            self._schedule_timer.start()
-            self._start_schedule_countdown()
-
-            self.status_label.configure(
-                text=f"⏰ Scheduled: {target_dt.strftime('%d/%m %H:%M')} — {self.current_slot}",
-                text_color=C["accent_cyan"],
-            )
-            dlg.destroy()
-
-            # ── Immediate "Scheduled!" confirmation popup ──
-            confirm_dlg = ctk.CTkToplevel(self)
-            confirm_dlg.title("Scheduled")
-            confirm_dlg.geometry("380x260")
-            confirm_dlg.configure(fg_color=C["bg_dark"])
-            confirm_dlg.transient(self)
-            confirm_dlg.grab_set()
-
-            self.update_idletasks()
-            cx = self.winfo_x() + (self.winfo_width() // 2) - 190
-            cy = self.winfo_y() + (self.winfo_height() // 2) - 130
-            confirm_dlg.geometry(f"+{cx}+{cy}")
-
-            ctk.CTkLabel(confirm_dlg, text="⏰", font=ctk.CTkFont(size=48)).pack(pady=(20, 5))
-            ctk.CTkLabel(
-                confirm_dlg, text="Messages Scheduled!",
-                font=ctk.CTkFont(size=20, weight="bold"),
-                text_color=C["accent_cyan"],
-            ).pack(pady=(0, 6))
-            ctk.CTkLabel(
-                confirm_dlg,
-                text=f"Your batch will be sent automatically at\n{target_dt.strftime('%d/%m/%Y  %H:%M')}\n\nSlot: {self.current_slot}",
-                font=ctk.CTkFont(size=13),
-                text_color=C["text_secondary"],
-                wraplength=340,
-                justify="center",
-            ).pack(pady=(0, 12))
-            StyledButton(
-                confirm_dlg, text="OK", width=120, color=C["accent_blue"],
-                command=confirm_dlg.destroy,
-            ).pack(pady=(5, 0))
-
-            try:
-                import winsound
-                winsound.MessageBeep(winsound.MB_ICONASTERISK)
-            except Exception:
-                pass
-
-        btn_row = ctk.CTkFrame(content, fg_color="transparent")
-        btn_row.pack(fill="x", pady=(20, 0))
-        StyledButton(btn_row, text="Cancel", color=C["bg_input"],
-                     text_color=C["text_primary"], hover=C["hover"],
-                     command=dlg.destroy).pack(side="left", padx=4, expand=True)
-        StyledButton(btn_row, text="Set Schedule", color=C["accent_cyan"],
-                     hover=C["accent_blue"], command=confirm).pack(side="right", padx=4, expand=True)
-
-    def _start_schedule_countdown(self):
-        """Update the status bar every second with time remaining."""
-        import datetime
-
-        def tick():
-            if not self._schedule_target_dt:
-                return
-            remaining = self._schedule_target_dt - datetime.datetime.now()
-            if remaining.total_seconds() <= 0:
-                return
-            mins, secs = divmod(int(remaining.total_seconds()), 60)
-            hrs, mins = divmod(mins, 60)
-            if hrs:
-                label = f"⏰ Scheduled in {hrs}h {mins}m {secs}s — {self.current_slot}"
-            else:
-                label = f"⏰ Scheduled in {mins}m {secs}s — {self.current_slot}"
-            self.status_label.configure(text=label, text_color=C["accent_cyan"])
-            self._schedule_countdown_job = self.after(1000, tick)
-
-        tick()
-
-    def _cancel_schedule(self, silent=False):
-        """Cancel a pending scheduled send."""
-        if self._schedule_timer:
-            self._schedule_timer.cancel()
-            self._schedule_timer = None
-        if self._schedule_countdown_job:
-            self.after_cancel(self._schedule_countdown_job)
-            self._schedule_countdown_job = None
-        self._schedule_target_dt = None
-        if not silent:
-            self.status_label.configure(text="Schedule cancelled.", text_color=C["text_muted"])
 
     # ── Feature 4: Desktop Notification on Batch Complete ─
     def _notify_batch_complete(self, total: int, sent_ok: int, slot: str):
@@ -1803,6 +1695,15 @@ class App(ctk.CTk):
         TourGuide(self, tour_steps)
 
 
+def main():
+    recipient_type = choose_recipient_type()
+    if recipient_type == "instructors":
+        app = App()
+        app.mainloop()
+    elif recipient_type == "coordinators":
+        app = CoordinatorApp()
+        app.mainloop()
+
+
 if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+    main()

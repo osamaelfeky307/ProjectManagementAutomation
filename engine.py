@@ -10,10 +10,12 @@ import pywhatkit
 class MessageEngine:
     """Sends WhatsApp messages with configurable random delays."""
 
-    def __init__(self, min_delay=20, max_delay=40, wait_time=15):
+    def __init__(self, min_delay=20, max_delay=40, wait_time=15, close_time=10, post_send_delay=8):
         self.min_delay = min_delay
         self.max_delay = max_delay
         self.wait_time = wait_time
+        self.close_time = close_time
+        self.post_send_delay = post_send_delay
         self._stop_event = threading.Event()
 
     def stop(self):
@@ -43,17 +45,36 @@ class MessageEngine:
                 phone = '+' + phone
 
         try:
-            # Use sendwhatmsg_instantly for immediate sending
+            # pywhatkit handles opening/typing. We keep the tab open and do the
+            # final Enter/close ourselves so WhatsApp has enough time to load.
             pywhatkit.sendwhatmsg_instantly(
                 phone_no=phone,
                 message=message,
                 wait_time=self.wait_time,       # seconds to wait for WhatsApp Web to load
-                tab_close=True,
-                close_time=5,
+                tab_close=False,
+                close_time=self.close_time,
             )
+            self._confirm_send_and_close_tab()
             return True, "Sent"
         except Exception as exc:
             return False, str(exc)
+
+    def _confirm_send_and_close_tab(self):
+        """Press Enter to send, then close the active WhatsApp tab."""
+        try:
+            import pyautogui
+        except Exception:
+            return
+
+        # Give WhatsApp Web extra time after pywhatkit returns. On slower
+        # connections the message can be typed before the send button is ready.
+        time.sleep(self.post_send_delay)
+        pyautogui.press("enter")
+        # Wait after Enter so the message request is actually sent before close.
+        time.sleep(self.close_time)
+
+        # Close only the active WhatsApp tab. Retrying can close another tab.
+        pyautogui.hotkey("ctrl", "w")
 
     def send_batch(self, recipients: list[dict], template: str,
                    on_progress=None, on_complete=None, on_delay=None):

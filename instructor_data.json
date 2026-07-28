@@ -14,7 +14,7 @@
       "day": "Saturday",
       "time": "14:00:00",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent"
     },
@@ -25,12 +25,11 @@
       "day": "Saturday",
       "time": "14:00:00",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent"
     }
   ],
-  "saturday - 09:00:00": [],
   "Saturday - 09:00:00": [
     {
       "name": "Mahmoud Sayed Ali Mohamed",
@@ -40,7 +39,7 @@
       "subject": "",
       "room": "",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent",
       "day": "Saturday"
@@ -53,7 +52,7 @@
       "subject": "",
       "room": "",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent",
       "day": "Saturday"
@@ -66,7 +65,7 @@
       "subject": "",
       "room": "",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent",
       "day": "Saturday"
@@ -79,7 +78,7 @@
       "subject": "",
       "room": "",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent",
       "day": "Saturday"
@@ -92,7 +91,7 @@
       "subject": "",
       "room": "",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent",
       "day": "Saturday"
@@ -106,7 +105,7 @@
       "day": "Saturday",
       "time": "17:00",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent"
     },
@@ -117,7 +116,7 @@
       "day": "Saturday",
       "time": "17:00",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent"
     },
@@ -128,7 +127,7 @@
       "day": "Saturday",
       "time": "17:00",
       "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent"
     }
@@ -141,20 +140,23 @@
       "day": "Saturday",
       "time": "12:00",
       "status": "Not Sent",
-      "selected": true,
-      "visible": true,
-      "error_detail": "Sent"
-    },
-    {
-      "name": "osama fayez",
-      "phone": "+201062337475",
-      "group_code": "sdqwe",
-      "day": "Saturday",
-      "time": "12:00",
-      "status": "Not Sent",
-      "selected": true,
+      "selected": false,
       "visible": true,
       "error_detail": "Sent"
     }
-  ]
+  ],
+  "Friday - 12:00": [],
+  "Monday - 12:00": [
+    {
+      "name": "osama",
+      "phone": "+201062337475",
+      "group_code": "asdas123",
+      "day": "Monday",
+      "time": "12:00",
+      "status": "Not Sent",
+      "selected": false,
+      "visible": true
+    }
+  ],
+  "Monday - 12:00 AM": []
 }

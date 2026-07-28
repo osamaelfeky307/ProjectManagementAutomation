@@ -1,0 +1,594 @@
+[
+  {
+    "id": "sched_1778329262_2290",
+    "target_dt": "2026-05-15T14:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_4115",
+    "target_dt": "2026-05-16T13:45:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_5129",
+    "target_dt": "2026-05-16T14:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_6279",
+    "target_dt": "2026-05-16T14:30:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_1106",
+    "target_dt": "2026-05-16T16:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_6833",
+    "target_dt": "2026-05-15T12:00:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_5264",
+    "target_dt": "2026-05-16T11:45:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_2886",
+    "target_dt": "2026-05-16T12:00:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_8051",
+    "target_dt": "2026-05-16T12:30:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_5775",
+    "target_dt": "2026-05-16T14:00:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_3269",
+    "target_dt": "2026-05-15T17:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_1419",
+    "target_dt": "2026-05-16T16:45:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_2552",
+    "target_dt": "2026-05-16T17:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_9242",
+    "target_dt": "2026-05-16T17:30:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_9940",
+    "target_dt": "2026-05-16T19:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_9019",
+    "target_dt": "2026-05-15T14:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_3842",
+    "target_dt": "2026-05-16T13:45:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_7305",
+    "target_dt": "2026-05-16T14:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_4052",
+    "target_dt": "2026-05-16T14:30:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329262_9714",
+    "target_dt": "2026-05-16T16:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_4272",
+    "target_dt": "2026-05-15T14:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_8914",
+    "target_dt": "2026-05-16T13:45:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_4129",
+    "target_dt": "2026-05-16T14:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_2824",
+    "target_dt": "2026-05-16T14:30:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_2236",
+    "target_dt": "2026-05-16T16:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_8366",
+    "target_dt": "2026-05-15T12:00:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_8990",
+    "target_dt": "2026-05-16T11:45:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_2803",
+    "target_dt": "2026-05-16T12:00:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_8466",
+    "target_dt": "2026-05-16T12:30:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_6613",
+    "target_dt": "2026-05-16T14:00:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_6711",
+    "target_dt": "2026-05-15T17:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_4481",
+    "target_dt": "2026-05-16T16:45:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_6821",
+    "target_dt": "2026-05-16T17:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_8096",
+    "target_dt": "2026-05-16T17:30:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_9147",
+    "target_dt": "2026-05-16T19:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_7428",
+    "target_dt": "2026-05-15T14:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_3199",
+    "target_dt": "2026-05-16T13:45:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_9580",
+    "target_dt": "2026-05-16T14:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_3094",
+    "target_dt": "2026-05-16T14:30:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329497_5537",
+    "target_dt": "2026-05-16T16:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_6260",
+    "target_dt": "2026-05-15T14:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_5684",
+    "target_dt": "2026-05-16T13:45:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_5107",
+    "target_dt": "2026-05-16T14:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_2532",
+    "target_dt": "2026-05-16T14:30:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_9042",
+    "target_dt": "2026-05-16T16:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_2461",
+    "target_dt": "2026-05-16T11:45:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_8916",
+    "target_dt": "2026-05-15T17:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_4411",
+    "target_dt": "2026-05-16T16:45:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_5538",
+    "target_dt": "2026-05-16T17:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_9974",
+    "target_dt": "2026-05-16T17:30:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_7058",
+    "target_dt": "2026-05-16T19:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_8748",
+    "target_dt": "2026-05-15T14:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_6702",
+    "target_dt": "2026-05-16T13:45:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_2220",
+    "target_dt": "2026-05-16T14:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "3. Waiting Room Reminder",
+    "template_text": "Hello Eng. *{name}*, 👥🚨 \n\nStudents for group *{group_code}* are currently waiting in the room.\n\nPlease start admitting them immediately",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_7661",
+    "target_dt": "2026-05-16T14:30:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "4. Attendance Reminder",
+    "template_text": "Hello Eng. *{name}*, 📝\n\nFriendly reminder to take attendance for group *{group_code}* before ending the session.",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329539_8156",
+    "target_dt": "2026-05-16T16:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_4790",
+    "target_dt": "2026-05-15T14:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_4918",
+    "target_dt": "2026-05-16T13:45:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_1424",
+    "target_dt": "2026-05-16T16:00:00",
+    "slot": "Saturday - 09:00:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_5649",
+    "target_dt": "2026-05-15T12:00:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_3067",
+    "target_dt": "2026-05-16T11:45:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_8619",
+    "target_dt": "2026-05-16T14:00:00",
+    "slot": "Saturday - 12:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_7197",
+    "target_dt": "2026-05-15T14:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_8485",
+    "target_dt": "2026-05-16T13:45:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_9650",
+    "target_dt": "2026-05-16T16:00:00",
+    "slot": "Saturday - 14:00:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_7011",
+    "target_dt": "2026-05-15T17:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_4012",
+    "target_dt": "2026-05-16T16:45:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1778329779_1996",
+    "target_dt": "2026-05-16T19:00:00",
+    "slot": "Saturday - 17:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1781218832_5420",
+    "target_dt": "2026-06-18T12:00:00",
+    "slot": "Friday - 12:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1781218832_5611",
+    "target_dt": "2026-06-19T11:45:00",
+    "slot": "Friday - 12:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1781218832_9826",
+    "target_dt": "2026-06-19T14:00:00",
+    "slot": "Friday - 12:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1781218840_8424",
+    "target_dt": "2026-06-18T12:00:00",
+    "slot": "Friday - 12:00",
+    "template_name": "1. Day-Before Reminder",
+    "template_text": "Hello Eng. *{name}*, 👋\n\nThis is a reminder that you have a session for group *{group_code}* scheduled tomorrow at *{time}*. 📅\n\nPlease make sure to join at least 15 minutes before the session starts to avoid assigning another trainer to the session.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1781218840_8800",
+    "target_dt": "2026-06-19T11:45:00",
+    "slot": "Friday - 12:00",
+    "template_name": "2. Pre-Session Readiness",
+    "template_text": "Hello Eng. *{name}*, 🚨 \n\nYour session for group *{group_code}* at *{time}* will begin shortly.\n\nPlease confirm that you are ready to start.\n\n• If you notice students are not focused or refusing to turn on their cameras, please inform me.\n• If there is any inappropriate behavior or disturbance from any student, please contact me immediately.\n• Please note that only 2 breaks are allowed during the session — no more and no less.\n• During breaks, please share a visible timer on screen.\n\nThank you,\neyouth Coordination",
+    "status": "Cancelled"
+  },
+  {
+    "id": "sched_1781218840_5171",
+    "target_dt": "2026-06-19T14:00:00",
+    "slot": "Friday - 12:00",
+    "template_name": "6. Post-Session Thanks",
+    "template_text": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
+    "status": "Cancelled"
+  }
+]

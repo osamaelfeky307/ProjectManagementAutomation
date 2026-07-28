@@ -1,0 +1,20 @@
+[
+  {
+    "key": "day_before",
+    "offset_minutes": -1440,
+    "prefix": "1.",
+    "label": "📅 Day Before"
+  },
+  {
+    "key": "pre_session",
+    "offset_minutes": -15,
+    "prefix": "2.",
+    "label": "🚨 -15 min"
+  },
+  {
+    "key": "post_thanks",
+    "offset_minutes": 120,
+    "prefix": "6.",
+    "label": "🌟 +2 h"
+  }
+]

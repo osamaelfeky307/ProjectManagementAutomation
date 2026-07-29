@@ -3,10 +3,10 @@ import customtkinter as ctk
 import openpyxl, os, random, datetime, threading, tkinter as tk, winsound
 from tkinter import filedialog, messagebox
 from app_config import COLORS as C, load_templates, save_templates
-from ui_components import StatusDot, StyledButton, SidebarButton
+from ui_components import StatusDot, StyledButton, SidebarButton, StyledEntry, StyledTextbox, StyledOptionMenu, CardFrame
 from engine import MessageEngine
 from schedule_manager import ScheduleMixin
-from coordinator_ui import CoordinatorApp, choose_recipient_type
+from coordinator_ui import CoordinatorApp
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -199,7 +199,7 @@ class TourGuide(ctk.CTkToplevel):
         for t in targets:
             if t.winfo_exists():
                 t.configure(
-                    border_width=1 if isinstance(t, ctk.CTkTextbox) else 0,
+                    border_width=1 if isinstance(t, StyledTextbox) else 0,
                     border_color=C["border"]
                 )
 
@@ -211,46 +211,18 @@ class App(ctk.CTk, ScheduleMixin):
         self.geometry("1280x780")
         self.minsize(1100, 650)
         self.configure(fg_color=C["bg_dark"])
+        self.after(0, lambda: self.state("zoomed"))
 
         self.templates = load_templates()
         self.engine = MessageEngine()
-        self.all_data = self._load_all_data()
         
-        for slot in self.all_data:
-            for row in self.all_data[slot]:
-                row["phone"] = normalize_phone(row.get("phone", ""))
+        import db_manager
+        db_manager.init_db()
+        db_manager.clear_temporary_sessions()
 
-        new_all_data = {}
-        for slot_name, rows in self.all_data.items():
-            for row in rows:
-                if "day" not in row:
-                    if " - " in slot_name:
-                        parts = slot_name.split(" - ", 1)
-                        row["day"] = parts[0]
-                    else:
-                        row["day"] = "Friday"
-                row["day"] = row["day"].strip().title()
-                
-            if " - " in slot_name:
-                parts = slot_name.split(" - ", 1)
-                new_slot = f"{parts[0].strip().title()} - {parts[1]}"
-            else:
-                new_slot = slot_name.strip().title()
-                if slot_name.lower() == "general":
-                    new_slot = "General"
-                    
-            if new_slot not in new_all_data:
-                new_all_data[new_slot] = []
-            new_all_data[new_slot].extend(rows)
-            
-        self.all_data = new_all_data
-
-        for s in ["9:00 AM", "2:00 PM", "5:00 PM", "General"]:
-            if s in self.all_data and not self.all_data[s]:
-                del self.all_data[s]
-
-        self.day_filter_var = ctk.StringVar(value="All Days")
+        self.date_filter_var = ctk.StringVar(value="All Saved")
         self.slot_var = ctk.StringVar(value="All slots")
+        self.rows = []
 
         self.row_widgets = []
         self.last_selected_index = None # Track selection for preview
@@ -261,6 +233,7 @@ class App(ctk.CTk, ScheduleMixin):
 
         self._build_sidebar()
         self._build_main()
+        self._update_date_menu()
         self._update_slot_menu()
         self._render_table()
 
@@ -387,22 +360,34 @@ class App(ctk.CTk, ScheduleMixin):
 
         # Template Selector
         self.tpl_var = ctk.StringVar(value=list(self.templates.keys())[0] if self.templates else "")
-        self.tpl_menu = ctk.CTkOptionMenu(sb, variable=self.tpl_var,
+        self.tpl_menu = StyledOptionMenu(sb, variable=self.tpl_var,
             values=list(self.templates.keys()), width=240,
             fg_color=C["bg_input"], button_color=C["accent_blue"],
             button_hover_color=C["accent_purple"],
             command=self._on_template_select)
         self.tpl_menu.pack(padx=10, pady=(5, 5))
         
-        # Insert Placeholder - Moved above editor for better flow
+        # Insert Placeholder Dropdown
         self.ph_var = ctk.StringVar(value="✨ Insert Variable...")
-        self.ph_menu = ctk.CTkOptionMenu(sb, variable=self.ph_var, width=240,
-            values=["{name}", "{group_code}", "{time}", "{day}"],
+        self.ph_menu = StyledOptionMenu(sb, variable=self.ph_var, width=240,
+            values=["{name}", "{group_code}", "{time}", "{day}", "{g:male_word:female_word}"],
             fg_color=C["bg_input"], button_color=C["accent_cyan"], 
             text_color=C["text_primary"], command=self._insert_placeholder)
         self.ph_menu.pack(padx=10, pady=(5, 5))
 
-        self.tpl_editor = ctk.CTkTextbox(sb, height=150, fg_color=C["bg_input"],
+        # Quick-Insert Buttons
+        qi_frame = ctk.CTkFrame(sb, fg_color="transparent")
+        qi_frame.pack(padx=10, pady=(0, 5), fill="x")
+        
+        btn_font = ctk.CTkFont(size=10, weight="bold")
+        for txt in ["{name}", "{group_code}", "{time}"]:
+            btn = ctk.CTkButton(qi_frame, text=txt, width=70, height=24, 
+                                font=btn_font, fg_color=C["bg_card"], hover_color=C["hover"], 
+                                text_color=C["text_secondary"], corner_radius=4,
+                                command=lambda t=txt: self._insert_placeholder(t))
+            btn.pack(side="left", padx=2, fill="x", expand=True)
+
+        self.tpl_editor = StyledTextbox(sb, height=150, fg_color=C["bg_input"],
             font=ctk.CTkFont(size=13), text_color=C["text_primary"],
             border_color=C["border"], border_width=1, corner_radius=8)
         self.tpl_editor.pack(padx=10, pady=2, fill="x")
@@ -421,7 +406,7 @@ class App(ctk.CTk, ScheduleMixin):
         ctk.CTkLabel(sb, text="LIVE PREVIEW", font=ctk.CTkFont(size=10, weight="bold"),
                       text_color=C["text_muted"]).pack(anchor="w", padx=20, pady=(12, 2))
         
-        self.preview_box = ctk.CTkTextbox(sb, height=100, fg_color=C["bg_dark"],
+        self.preview_box = StyledTextbox(sb, height=100, fg_color=C["bg_dark"],
             font=ctk.CTkFont(size=11), text_color=C["text_secondary"],
             border_color=C["border"], border_width=1, corner_radius=6)
         self.preview_box.pack(padx=10, pady=2, fill="x")
@@ -453,18 +438,18 @@ class App(ctk.CTk, ScheduleMixin):
         df = ctk.CTkFrame(self.config_frame, fg_color="transparent")
         df.pack(padx=0, fill="x")
         ctk.CTkLabel(df, text="Delay (s):", text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left")
-        self.delay_min = ctk.CTkEntry(df, width=40, fg_color=C["bg_input"])
+        self.delay_min = StyledEntry(df, width=40, fg_color=C["bg_input"])
         self.delay_min.insert(0, "20")
         self.delay_min.pack(side="left", padx=(4, 4))
         ctk.CTkLabel(df, text="-", text_color=C["text_secondary"]).pack(side="left")
-        self.delay_max = ctk.CTkEntry(df, width=40, fg_color=C["bg_input"])
+        self.delay_max = StyledEntry(df, width=40, fg_color=C["bg_input"])
         self.delay_max.insert(0, "40")
         self.delay_max.pack(side="left", padx=4)
 
         wf = ctk.CTkFrame(sb, fg_color="transparent")
         wf.pack(padx=10, fill="x", pady=(8, 0))
         ctk.CTkLabel(wf, text="Wait Time:", text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left")
-        self.wait_time_entry = ctk.CTkEntry(wf, width=40, fg_color=C["bg_input"])
+        self.wait_time_entry = StyledEntry(wf, width=40, fg_color=C["bg_input"])
         self.wait_time_entry.insert(0, "15")
         self.wait_time_entry.pack(side="left", padx=(4, 8))
 
@@ -494,10 +479,15 @@ class App(ctk.CTk, ScheduleMixin):
         full_name = data.get("name", "")
         first_name = full_name.split()[0] if full_name else ""
         
-        text = text.replace("{name}", first_name)
-        text = text.replace("{group_code}", data.get("group_code", ""))
-        text = text.replace("{time}", data.get("time", ""))
-        text = text.replace("{day}", data.get("day", ""))
+        context = {
+            "name": first_name,
+            "full_name": full_name,
+            "group_code": data.get("group_code", ""),
+            "time": data.get("time", ""),
+            "day": data.get("day", ""),
+        }
+        from template_utils import render_template
+        text = render_template(text, context, gender=data.get("gender", ""))
         
         self.preview_box.configure(state="normal")
         self.preview_box.delete("1.0", "end")
@@ -516,66 +506,61 @@ class App(ctk.CTk, ScheduleMixin):
         ctk.CTkLabel(top, text="📋  Message Queue", font=ctk.CTkFont(size=18, weight="bold"),
                       text_color=C["text_primary"]).pack(side="left", padx=20)
 
-        self.status_label = ctk.CTkLabel(top, text="No file loaded",
+        self.status_label = ctk.CTkLabel(top, text="No data loaded",
             font=ctk.CTkFont(size=12), text_color=C["text_muted"])
         self.status_label.pack(side="right", padx=20)
 
-        # Action bar — Row 1: Filters & core actions
+        # Action bar — Row 1: Filters & Core Data Actions
         ab = ctk.CTkFrame(main, height=50, fg_color=C["bg_card"], corner_radius=0)
         ab.pack(fill="x", pady=(1, 0))
         ab.pack_propagate(False)
 
+        # Date Filter
+        ctk.CTkLabel(ab, text="Date:", text_color=C["text_secondary"]).pack(side="left", padx=(16, 4))
+        self.date_filter_menu = StyledOptionMenu(ab, variable=self.date_filter_var, width=120,
+            values=["All Saved"],
+            fg_color=C["bg_input"], button_color=C["accent_blue"],
+            command=self._on_date_filter_change)
+        self.date_filter_menu.pack(side="left", padx=4)
+
+        self.delete_date_btn = ctk.CTkButton(ab, text="🗑️", width=30, fg_color="transparent", 
+                                             hover_color=C["danger"], text_color=C["text_primary"],
+                                             command=self._delete_current_date)
+        self.delete_date_btn.pack(side="left", padx=(0, 10))
+
         # Slot Selector
         ctk.CTkLabel(ab, text="Time Slot:", text_color=C["accent_cyan"], font=ctk.CTkFont(weight="bold")).pack(side="left", padx=(16, 4))
-        self.slot_menu = ctk.CTkOptionMenu(ab, variable=self.slot_var, width=120,
+        self.slot_menu = StyledOptionMenu(ab, variable=self.slot_var, width=120,
             values=["All slots"],
             fg_color=C["bg_input"], button_color=C["accent_cyan"],
             command=self._on_slot_change)
         self.slot_menu.pack(side="left", padx=4)
 
-        # Day Filter
-        ctk.CTkLabel(ab, text="Day Filter:", text_color=C["text_secondary"]).pack(side="left", padx=(16, 4))
-        self.day_filter_menu = ctk.CTkOptionMenu(ab, variable=self.day_filter_var, width=120,
-            values=["All Days", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-            fg_color=C["bg_input"], button_color=C["accent_blue"],
-            command=self._on_day_filter_change)
-        self.day_filter_menu.pack(side="left", padx=4)
-
-        # Send buttons
-        StyledButton(ab, text="🚀 Send Selected", command=self._send_selected
-                     ).pack(side="right", padx=4, pady=8)
-        StyledButton(ab, text="🗑 Delete Selected", color=C["danger"], hover="#991b1b",
-                     command=self._delete_selected).pack(side="right", padx=4, pady=8)
-        StyledButton(ab, text="➕ Add Manual", color=C["accent_blue"],
-                     command=self._add_manual_row).pack(side="right", padx=4, pady=8)
-        self.bulk_paste_btn = StyledButton(ab, text="📋 Bulk Paste", color=C["accent_blue"],
+        # Data actions (right aligned)
+        StyledButton(ab, text="📥 Export Excel", color=C["status_green"], hover="#15803d",
+                     command=self._export_to_excel).pack(side="right", padx=(4, 16), pady=8)
+        StyledButton(ab, text="📂 Import Excel", color=C["accent_purple"],
+                     command=self._load_excel).pack(side="right", padx=4, pady=8)
+        self.bulk_paste_btn = StyledButton(ab, text="📋 Paste", color=C["accent_blue"],
                      command=self._bulk_paste_dialog)
         self.bulk_paste_btn.pack(side="right", padx=4, pady=8)
-        StyledButton(ab, text="⛔ Stop", color=C["danger"], hover="#991b1b",
-                     command=self._stop_sending).pack(side="right", padx=4, pady=8)
+        StyledButton(ab, text="➕ Manual", color=C["accent_blue"],
+                     command=self._add_manual_row).pack(side="right", padx=4, pady=8)
 
-        # Action bar — Row 2: Schedule controls + Search bar
+        # Action bar — Row 2: Sending Controls & Search
         ab2 = ctk.CTkFrame(main, height=46, fg_color=C["bg_card"], corner_radius=0)
         ab2.pack(fill="x", pady=(1, 0))
         ab2.pack_propagate(False)
-
-        StyledButton(ab2, text="⏰ Schedule Manager", color=C["accent_purple"],
-                     hover=C["accent_blue"],
-                     command=self._open_schedule_dialog).pack(side="left", padx=(16, 4), pady=6)
-        StyledButton(ab2, text="⛔ Cancel All", color=C["text_muted"],
-                     hover=C["hover"], command=self._cancel_schedule
-                     ).pack(side="left", padx=4, pady=6)
-
-        # Search bar (inline in row 2)
+        
+        # Search bar
         ctk.CTkLabel(ab2, text="🔍", font=ctk.CTkFont(size=14),
                      text_color=C["text_muted"]).pack(side="left", padx=(20, 4))
-
         self.search_var = ctk.StringVar()
-        self.search_entry = ctk.CTkEntry(
+        self.search_entry = StyledEntry(
             ab2,
             textvariable=self.search_var,
-            placeholder_text="Search by name, phone, or group code…",
-            width=280,
+            placeholder_text="Search by name, phone, or group…",
+            width=240,
             fg_color=C["bg_input"],
             border_color=C["border"],
             border_width=1,
@@ -590,10 +575,17 @@ class App(ctk.CTk, ScheduleMixin):
         )
         self.search_clear_btn.pack(side="left", padx=2)
 
-        self.search_result_lbl = ctk.CTkLabel(
-            ab2, text="", font=ctk.CTkFont(size=11), text_color=C["text_muted"]
-        )
-        self.search_result_lbl.pack(side="right", padx=16)
+        # Sending Actions
+        StyledButton(ab2, text="⛔ Stop", color=C["danger"], hover="#991b1b", width=70,
+                     command=self._stop_sending).pack(side="right", padx=(4, 16), pady=6)
+        StyledButton(ab2, text="🗑 Delete", color=C["danger"], hover="#991b1b", width=70,
+                     command=self._delete_selected).pack(side="right", padx=4, pady=6)
+        StyledButton(ab2, text="🚀 Send Selected", width=120, command=self._send_selected
+                     ).pack(side="right", padx=4, pady=6)
+        
+        StyledButton(ab2, text="⏰ Schedule", color=C["accent_purple"], width=90,
+                     hover=C["accent_blue"],
+                     command=self._open_schedule_dialog).pack(side="right", padx=16, pady=6)
 
         # Table header
         hdr = ctk.CTkFrame(main, height=36, fg_color=C["bg_sidebar"], corner_radius=0)
@@ -605,8 +597,8 @@ class App(ctk.CTk, ScheduleMixin):
             command=self._toggle_select_all, fg_color=C["accent_blue"],
             hover_color=C["accent_purple"]).pack(side="left", padx=(8, 0))
 
-        cols = [("Instructor", 160), ("Phone", 130), ("Group Code", 130),
-                ("Day", 90), ("Time", 90), ("Status", 100), ("Actions", 180)]
+        cols = [("Instructor", 160), ("Phone", 130), ("Group Code", 100),
+                ("Date", 90), ("Time", 90), ("Status", 100), ("Actions", 180)]
         for text, w in cols:
             ctk.CTkLabel(hdr, text=text, width=w, font=ctk.CTkFont(size=11, weight="bold"),
                           text_color=C["text_muted"]).pack(side="left", padx=2)
@@ -622,7 +614,6 @@ class App(ctk.CTk, ScheduleMixin):
             font=ctk.CTkFont(size=11), text_color=C["text_secondary"])
         self.stats_label.pack(side="left", padx=16)
 
-    # ── Template helpers ─────────────────────────────────────
     def _load_tpl_text(self):
         self.tpl_editor.delete("1.0", "end")
         name = self.tpl_var.get()
@@ -767,31 +758,45 @@ class App(ctk.CTk, ScheduleMixin):
         except Exception:
             pass
 
-    def _update_slot_menu(self):
-        day_filter = self.day_filter_var.get()
-        all_slots = sorted([s for s, rows in self.all_data.items() if rows])
-        
-        if day_filter == "All Days":
-            filtered_slots = all_slots
-        else:
-            filtered_slots = [s for s in all_slots if s.startswith(day_filter)]
-            
-        times = set()
-        for s in filtered_slots:
-            if " - " in s:
-                times.add(s.split(" - ", 1)[1])
-            elif s == "General":
-                times.add("General")
+    def _update_date_menu(self):
+        import db_manager
+        dates = db_manager.get_all_dates()
+        vals = ["All Saved"] + dates
+        if hasattr(self, 'date_filter_menu'):
+            self.date_filter_menu.configure(values=vals)
+            if self.date_filter_var.get() not in vals:
+                self.date_filter_var.set("All Saved")
                 
+    def _delete_current_date(self):
+        date_val = self.date_filter_var.get()
+        if date_val == "All Saved":
+            messagebox.showwarning("Cannot Delete", "Please select a specific date to delete.")
+            return
+            
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete all saved data for {date_val}?"):
+            import db_manager
+            db_manager.delete_date(date_val)
+            self.date_filter_var.set("All Saved")
+            self._update_date_menu()
+            self._on_date_filter_change(None)
+
+    def _on_date_filter_change(self, _=None):
+        self._update_slot_menu()
+        self._populate_rows()
+        self._render_table()
+
+    def _update_slot_menu(self):
+        import db_manager
+        date_filter = self.date_filter_var.get()
+        all_db = db_manager.get_sessions(date_filter if date_filter != "All Saved" else None)
+        times = set([r["time"] for r in all_db if r["time"]])
         sorted_times = sorted(list(times))
         menu_values = ["All slots"] + sorted_times
         
-        self.slot_menu.configure(values=menu_values)
-        
-        if self.slot_var.get() not in menu_values:
-            self.slot_var.set("All slots")
-            
-        self._populate_rows()
+        if hasattr(self, 'slot_menu'):
+            self.slot_menu.configure(values=menu_values)
+            if self.slot_var.get() not in menu_values:
+                self.slot_var.set("All slots")
 
     def _on_day_filter_change(self, _):
         self._update_slot_menu()
@@ -857,11 +862,16 @@ class App(ctk.CTk, ScheduleMixin):
             ctk.CTkLabel(rf, text=row["phone"], width=130, anchor="w",
                 text_color=C["text_secondary"], font=ctk.CTkFont(size=12)).pack(side="left", padx=2)
             
-            gc_disp = row["group_code"] if len(row["group_code"]) <= 18 else row["group_code"][:16] + "…"
-            ctk.CTkLabel(rf, text=gc_disp, width=130, anchor="w",
+            gc_disp = row["group_code"] if len(row["group_code"]) <= 12 else row["group_code"][:10] + "…"
+            ctk.CTkLabel(rf, text=gc_disp, width=100, anchor="w",
                 text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left", padx=2)
             
-            ctk.CTkLabel(rf, text=row.get("day", ""), width=90, anchor="w",
+            # Show target_date if exists, else show day_of_week
+            date_disp = row.get("target_date", "")
+            if not date_disp or date_disp == "Legacy (No Date)":
+                date_disp = row.get("day", "")
+                
+            ctk.CTkLabel(rf, text=date_disp, width=90, anchor="w",
                 text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left", padx=2)
             ctk.CTkLabel(rf, text=row["time"], width=90, anchor="w",
                 text_color=C["text_secondary"], font=ctk.CTkFont(size=11)).pack(side="left", padx=2)
@@ -891,7 +901,6 @@ class App(ctk.CTk, ScheduleMixin):
             self.row_widgets.append({"frame": rf, "cb_var": var, "dot": dot, "status_lbl": sl})
 
         self._update_stats()
-        self._save_all_data()
 
     def _toggle_row(self, idx, var):
         self.rows[idx]["selected"] = var.get()
@@ -922,27 +931,26 @@ class App(ctk.CTk, ScheduleMixin):
         row_dict["status"] = status
         if detail:
             row_dict["error_detail"] = detail
+            
+        if "db_id" in row_dict:
+            db_manager.update_session_status(row_dict["db_id"], status, detail or "")
         
         if idx is not None:
             w = self.row_widgets[idx]
             if w:
                 color = STATUS_COLORS.get(status, C["text_muted"])
                 w["dot"].set_color(color)
-                
                 display_text = status
                 if status == STATUS_FAILED and detail:
                     display_text = f"{STATUS_FAILED} (!)"
-                
                 w["status_lbl"].configure(text=display_text, text_color=color)
                 
                 if status == STATUS_FAILED:
                     err_msg = detail or "Unknown error"
                     self.status_label.configure(text=f"Error: {err_msg}", text_color=C["status_red"])
-                    messagebox.showerror("Send Failed", 
-                        f"Failed to send message to:\n{row_dict['name']} ({row_dict['phone']})\n\nError:\n{err_msg}")
-        
+                    # Don't popup on every failure to prevent blocking batch
+                    
         self._update_stats()
-        self._save_all_data()
 
     def _show_error_detail(self, idx):
         row = self.rows[idx]
@@ -952,43 +960,37 @@ class App(ctk.CTk, ScheduleMixin):
                 f"Instructor: {row['name']}\nPhone: {row['phone']}\n\nError:\n{detail}")
 
     def _delete_row(self, idx):
-        row_to_delete = self.rows[idx]
-        name = row_to_delete["name"]
-        if messagebox.askyesno("Confirm Delete", f"Remove '{name}' from {self.current_slot}?"):
-            for slot_key, slot_rows in self.all_data.items():
-                if row_to_delete in slot_rows:
-                    slot_rows.remove(row_to_delete)
-                    break
-            self._save_all_data()
+        row = self.rows[idx]
+        name = row["name"]
+        if messagebox.askyesno("Confirm Delete", f"Remove '{name}'?"):
+            db_manager.delete_session(row["db_id"])
+            self._update_date_menu()
             self._update_slot_menu()
+            self._populate_rows()
             self._render_table()
 
     def _delete_selected(self):
-        count = sum(1 for r in self.rows if r["selected"] and r["visible"])
-        if count == 0:
-            return
-        if messagebox.askyesno("Confirm Delete", f"Delete {count} selected items from {self.current_slot}?"):
-            to_delete = [r for r in self.rows if r["selected"] and r["visible"]]
+        to_delete = [r for r in self.rows if r["selected"] and r["visible"]]
+        if not to_delete: return
+        if messagebox.askyesno("Confirm Delete", f"Delete {len(to_delete)} selected items?"):
             for r in to_delete:
-                for slot_key, slot_rows in self.all_data.items():
-                    if r in slot_rows:
-                        slot_rows.remove(r)
-                        break
-            self._save_all_data()
+                db_manager.delete_session(r["db_id"])
+            self._update_date_menu()
             self._update_slot_menu()
+            self._populate_rows()
             self._render_table()
 
     def _add_manual_row(self):
         dlg = ctk.CTkToplevel(self)
         dlg.title("Add Manual Instructor")
-        dlg.geometry("450x550")
+        dlg.geometry("450x600")
         dlg.configure(fg_color=C["bg_dark"])
         dlg.transient(self)
         dlg.grab_set()
         
         self.update_idletasks()
         x = self.winfo_x() + (self.winfo_width() // 2) - 225
-        y = self.winfo_y() + (self.winfo_height() // 2) - 275
+        y = self.winfo_y() + (self.winfo_height() // 2) - 300
         dlg.geometry(f"+{x}+{y}")
 
         content = ctk.CTkFrame(dlg, fg_color="transparent")
@@ -999,14 +1001,48 @@ class App(ctk.CTk, ScheduleMixin):
 
         fields = {}
         items = [("Name", "name"), ("Phone", "phone"), ("Group Code", "group_code"), 
-                 ("Day", "day"), ("Time", "time")]
+                 ("Target Date", "target_date"), ("Day of Week", "day"), ("Time", "time")]
         for label, key in items:
             ctk.CTkLabel(content, text=label, text_color=C["text_secondary"], font=ctk.CTkFont(size=12)).pack(anchor="w")
-            entry = ctk.CTkEntry(content, width=350, fg_color=C["bg_input"], border_color=C["border"])
+            entry = StyledEntry(content, width=350, fg_color=C["bg_input"], border_color=C["border"])
             if key == "day":
                 entry.insert(0, "Friday")
+            if key == "target_date":
+                # Default to current viewed date or empty
+                cur = self.date_filter_var.get()
+                if cur != "All Saved": entry.insert(0, cur)
             entry.pack(pady=(2, 12))
             fields[key] = entry
+
+        def save():
+            new_row = {
+                "name": fields["name"].get().strip(),
+                "phone": normalize_phone(fields["phone"].get().strip()),
+                "group_code": fields["group_code"].get().strip(),
+                "target_date": fields["target_date"].get().strip() or "Unspecified Date",
+                "day": fields["day"].get().strip().title(),
+                "time": fields["time"].get().strip(),
+                "status": STATUS_NOT_SENT,
+                "error_detail": ""
+            }
+            if not new_row["name"] or not new_row["phone"]:
+                messagebox.showerror("Error", "Name and Phone are required.")
+                return
+            
+            db_manager.insert_session(**new_row)
+            
+            self._update_date_menu()
+            self._update_slot_menu()
+            self._populate_rows()
+            self._render_table()
+            dlg.destroy()
+
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(10, 0))
+        
+        StyledButton(btn_frame, text="Cancel", color=C["bg_input"], text_color=C["text_primary"],
+                     hover=C["hover"], command=dlg.destroy).pack(side="left", padx=5, expand=True)
+        StyledButton(btn_frame, text="Add to Queue", command=save).pack(side="left", padx=5, expand=True)
 
         def save():
             day_val = (fields["day"].get().strip() or "Friday").title()
@@ -1060,14 +1096,14 @@ class App(ctk.CTk, ScheduleMixin):
         row = self.rows[idx]
         dlg = ctk.CTkToplevel(self)
         dlg.title(f"Edit: {row['name']}")
-        dlg.geometry("450x550")
+        dlg.geometry("450x600")
         dlg.configure(fg_color=C["bg_dark"])
         dlg.transient(self)
         dlg.grab_set()
         
         self.update_idletasks()
         x = self.winfo_x() + (self.winfo_width() // 2) - 225
-        y = self.winfo_y() + (self.winfo_height() // 2) - 275
+        y = self.winfo_y() + (self.winfo_height() // 2) - 300
         dlg.geometry(f"+{x}+{y}")
 
         content = ctk.CTkFrame(dlg, fg_color="transparent")
@@ -1078,14 +1114,46 @@ class App(ctk.CTk, ScheduleMixin):
 
         fields = {}
         items = [("Name", "name"), ("Phone", "phone"), ("Group Code", "group_code"), 
-                 ("Day", "day"), ("Time", "time")]
+                 ("Target Date", "target_date"), ("Day of Week", "day"), ("Time", "time")]
         
         for label, key in items:
             ctk.CTkLabel(content, text=label, text_color=C["text_secondary"], font=ctk.CTkFont(size=12)).pack(anchor="w")
-            entry = ctk.CTkEntry(content, width=350, fg_color=C["bg_input"], border_color=C["border"])
+            entry = StyledEntry(content, width=350, fg_color=C["bg_input"], border_color=C["border"])
             entry.insert(0, row.get(key, ""))
             entry.pack(pady=(2, 12))
             fields[key] = entry
+
+        def save_changes():
+            db_manager.update_session_details(
+                row["db_id"],
+                fields["name"].get().strip(),
+                normalize_phone(fields["phone"].get().strip()),
+                fields["group_code"].get().strip(),
+                fields["day"].get().strip().title(),
+                fields["time"].get().strip()
+            )
+            # update target_date (we'll need a direct execute for this since our helper doesn't do target_date)
+            # Actually, let's just do a direct update.
+            import sqlite3
+            conn = sqlite3.connect("sessions.db")
+            c = conn.cursor()
+            c.execute("UPDATE sessions SET target_date=? WHERE id=?", 
+                     (fields["target_date"].get().strip(), row["db_id"]))
+            conn.commit()
+            conn.close()
+            
+            self._update_date_menu()
+            self._update_slot_menu()
+            self._populate_rows()
+            self._render_table()
+            dlg.destroy()
+
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(10, 0))
+        
+        StyledButton(btn_frame, text="Cancel", color=C["bg_input"], text_color=C["text_primary"],
+                     command=dlg.destroy).pack(side="left", padx=5, expand=True)
+        StyledButton(btn_frame, text="Save Changes", color=C["accent_purple"], command=save_changes).pack(side="left", padx=5, expand=True)
 
         def save_changes():
             original_slot = None
@@ -1188,7 +1256,7 @@ class App(ctk.CTk, ScheduleMixin):
             row_f.pack(fill="x", pady=2)
             row_data = {}
             for key, w in [("name", 170), ("phone", 130), ("group_code", 130), ("day", 90), ("time", 90)]:
-                e = ctk.CTkEntry(row_f, width=w, fg_color=C["bg_card"], border_width=1)
+                e = StyledEntry(row_f, width=w, fg_color=C["bg_card"], border_width=1)
                 e.pack(side="left", padx=5)
                 row_data[key] = e
             entry_rows.append(row_data)
@@ -1459,6 +1527,49 @@ class App(ctk.CTk, ScheduleMixin):
         self.status_label.configure(text="Stopped.")
 
     # ── Excel export ─────────────────────────────────────────
+    def _export_to_excel(self):
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        
+        if not self.rows:
+            messagebox.showinfo("Export", "No data to export in the current view.")
+            return
+            
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx",
+            initialfile="Sessions_Export.xlsx", filetypes=[("Excel", "*.xlsx")])
+        if not path:
+            return
+            
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Exported Sessions"
+        
+        headers = ["Name", "Phone", "Group Code", "Date", "Day", "Time", "Status", "Error Detail"]
+        for c, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=c, value=h)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill(fill_type="solid", start_color="1a73e8")
+            cell.alignment = Alignment(horizontal="center")
+            
+        for ri, r in enumerate(self.rows, 2):
+            ws.cell(row=ri, column=1, value=r.get("name", ""))
+            ws.cell(row=ri, column=2, value=r.get("phone", ""))
+            ws.cell(row=ri, column=3, value=r.get("group_code", ""))
+            ws.cell(row=ri, column=4, value=r.get("target_date", ""))
+            ws.cell(row=ri, column=5, value=r.get("day", ""))
+            ws.cell(row=ri, column=6, value=r.get("time", ""))
+            ws.cell(row=ri, column=7, value=r.get("status", ""))
+            ws.cell(row=ri, column=8, value=r.get("error_detail", ""))
+            
+        for c in range(1, len(headers)+1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 18
+            
+        try:
+            wb.save(path)
+            messagebox.showinfo("Export Success", f"Successfully exported {len(self.rows)} rows to {path}")
+        except Exception as e:
+            messagebox.showerror("Export Failed", f"Failed to export: {e}")
+
     def _download_template(self):
         fname = "Instructor_Template.xlsx"
         path = filedialog.asksaveasfilename(defaultextension=".xlsx",
@@ -1569,61 +1680,31 @@ class App(ctk.CTk, ScheduleMixin):
         return phones
 
     def _import_with_dedup(self, new_rows: list, source_label: str = "Import"):
-        """
-        Deduplicate new_rows against existing data, show a report, then import.
-        """
-        existing_phones = self._get_all_existing_phones()
-
-        clean_rows = []
-        duplicate_rows = []
-
-        for row in new_rows:
-            if row["phone"] in existing_phones:
-                duplicate_rows.append(row)
+        if not new_rows: return
+        
+        # Ask to save for later
+        save_for_later = messagebox.askyesno("Save Sessions", f"{source_label} loaded {len(new_rows)} rows.\n\nDo you want to save these sessions in the database for later?\n(If No, they will be deleted when you close the app)")
+        
+        target_date = "Temporary"
+        if save_for_later:
+            dlg = ctk.CTkInputDialog(text="Enter the Date for these sessions\n(e.g., YYYY-MM-DD or specific event name):", title="Session Date")
+            t_date = dlg.get_input()
+            if t_date and t_date.strip():
+                target_date = t_date.strip()
             else:
-                clean_rows.append(row)
-                existing_phones.add(row["phone"])
-
-        if duplicate_rows:
-            lines = [f"  • {r['name']}  ({r['phone']})" for r in duplicate_rows[:10]]
-            if len(duplicate_rows) > 10:
-                lines.append(f"  … and {len(duplicate_rows) - 10} more")
-            summary = "\n".join(lines)
-
-            msg = (
-                f"{source_label} found {len(duplicate_rows)} duplicate phone number(s) "
-                f"already in your data:\n\n{summary}\n\n"
-                f"Click YES to skip duplicates and import {len(clean_rows)} new rows.\n"
-                f"Click NO to import all {len(new_rows)} rows anyway."
-            )
-            skip_dupes = messagebox.askyesno("Duplicates Found", msg)
-            rows_to_import = clean_rows if skip_dupes else new_rows
-        else:
-            rows_to_import = clean_rows
-
-        if not rows_to_import:
-            messagebox.showinfo(source_label, "No new rows to import.")
-            return
-
-        for r in rows_to_import:
-            d = r.get("day", "Friday").strip().title()
-            r["day"] = d
-            t = r.get("time", "").strip()
-            slot_key = f"{d} - {t}" if t else d
-            if slot_key not in self.all_data:
-                self.all_data[slot_key] = []
-            self.all_data[slot_key].append(r)
-
+                target_date = "Unspecified Date"
+                
+        for r in new_rows:
+            r["target_date"] = target_date
+            
+        db_manager.insert_sessions_bulk(new_rows)
+        
+        self._update_date_menu()
+        self.date_filter_var.set(target_date)
         self._update_slot_menu()
-        self._save_all_data()
+        self._populate_rows()
         self._render_table()
-        self.status_label.configure(
-            text=f"Imported {len(rows_to_import)} rows"
-            + (f" ({len(duplicate_rows)} duplicates skipped)" if duplicate_rows else "")
-        )
 
-
-    # ── Feature 4: Desktop Notification on Batch Complete ─
     def _notify_batch_complete(self, total: int, sent_ok: int, slot: str):
         """Fire a desktop notification summarising the completed batch."""
         failed = total - sent_ok
@@ -1695,14 +1776,87 @@ class App(ctk.CTk, ScheduleMixin):
         TourGuide(self, tour_steps)
 
 
-def main():
-    recipient_type = choose_recipient_type()
-    if recipient_type == "instructors":
+class LauncherApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("DECI Automation - Welcome")
+        self.geometry("700x450")
+        self.resizable(False, False)
+        self.configure(fg_color=C["bg_dark"])
+
+        # Center window on screen
+        self.update_idletasks()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = (self.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.winfo_screenheight() // 2) - (height // 2)
+        self.geometry(f"+{x}+{y}")
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.grid(row=0, column=0, sticky="nsew", padx=40, pady=40)
+        main_frame.grid_columnconfigure((0, 1), weight=1)
+        main_frame.grid_rowconfigure(1, weight=1)
+
+        title = ctk.CTkLabel(main_frame, text="Select Your Mission", 
+                             font=ctk.CTkFont(family="Inter", size=28, weight="bold"), 
+                             text_color=C["text_primary"])
+        title.grid(row=0, column=0, columnspan=2, pady=(0, 40))
+
+        # Instructor Card
+        instructor_card = CardFrame(main_frame)
+        instructor_card.grid(row=1, column=0, padx=(0, 20), sticky="nsew")
+        instructor_card.grid_columnconfigure(0, weight=1)
+        instructor_card.grid_rowconfigure(0, weight=1)
+        instructor_card.grid_rowconfigure(1, weight=0)
+        instructor_card.grid_rowconfigure(2, weight=0)
+        
+        inst_icon = ctk.CTkLabel(instructor_card, text="🎓", font=ctk.CTkFont(size=60))
+        inst_icon.grid(row=0, column=0, pady=(40, 10))
+        
+        inst_title = ctk.CTkLabel(instructor_card, text="Instructor Automation", 
+                                  font=ctk.CTkFont(family="Inter", size=18, weight="bold"), 
+                                  text_color=C["text_primary"])
+        inst_title.grid(row=1, column=0, pady=(0, 10))
+        
+        inst_btn = StyledButton(instructor_card, text="Launch Mode", command=self.launch_instructors)
+        inst_btn.grid(row=2, column=0, pady=(0, 40), padx=40, sticky="ew")
+
+        # Coordinator Card
+        coordinator_card = CardFrame(main_frame)
+        coordinator_card.grid(row=1, column=1, padx=(20, 0), sticky="nsew")
+        coordinator_card.grid_columnconfigure(0, weight=1)
+        coordinator_card.grid_rowconfigure(0, weight=1)
+        coordinator_card.grid_rowconfigure(1, weight=0)
+        coordinator_card.grid_rowconfigure(2, weight=0)
+        
+        coord_icon = ctk.CTkLabel(coordinator_card, text="👔", font=ctk.CTkFont(size=60))
+        coord_icon.grid(row=0, column=0, pady=(40, 10))
+        
+        coord_title = ctk.CTkLabel(coordinator_card, text="Coordinator Automation", 
+                                   font=ctk.CTkFont(family="Inter", size=18, weight="bold"), 
+                                   text_color=C["text_primary"])
+        coord_title.grid(row=1, column=0, pady=(0, 10))
+        
+        coord_btn = StyledButton(coordinator_card, text="Launch Mode", command=self.launch_coordinators)
+        coord_btn.grid(row=2, column=0, pady=(0, 40), padx=40, sticky="ew")
+
+    def launch_instructors(self):
+        self.destroy()
         app = App()
         app.mainloop()
-    elif recipient_type == "coordinators":
+
+    def launch_coordinators(self):
+        self.destroy()
         app = CoordinatorApp()
         app.mainloop()
+
+
+def main():
+    launcher = LauncherApp()
+    launcher.mainloop()
 
 
 if __name__ == "__main__":

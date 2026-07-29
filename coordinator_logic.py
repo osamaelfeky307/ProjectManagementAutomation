@@ -9,6 +9,7 @@ from collections import defaultdict, Counter
 import openpyxl
 from engine import MessageEngine
 from coordinator_parser import clean_phone_number, value_to_text, _person_key
+import pandas as pd
 
 DEFAULT_SLOT_PRICE = 250
 DEFAULT_MAIN_LIMIT = 2
@@ -297,11 +298,10 @@ def _arabic_day(day):
 
     return re.sub(r"[A-Za-z]+", replace_part, text)
 
-def _render_template(template_text, placeholders):
-    rendered = template_text
-    for key, value in placeholders.items():
-        rendered = rendered.replace("{" + key + "}", value or "")
-    return rendered
+from template_utils import render_template as utils_render_template
+
+def _render_template(template_text, placeholders, gender=""):
+    return utils_render_template(template_text, placeholders, gender)
 
 def _first_name(name):
     parts = value_to_text(name).strip().split()
@@ -332,7 +332,7 @@ def _build_coordinator_message(name, main_assignments, backup_assignments, templ
         "backup_section": backup_section,
         "closing": closing,
     }
-    message = _apply_gender_text(_render_template(template_text, placeholders), gender)
+    message = _apply_gender_text(_render_template(template_text, placeholders, gender=gender), gender)
     return message.strip()
 
 def _build_role_section(role_label, assignments):
@@ -431,3 +431,139 @@ def load_coordinator_templates() -> dict:
 def save_coordinator_templates(templates: dict):
     with open(COORDINATOR_TEMPLATES_FILE, "w", encoding="utf-8") as f:
         json.dump(templates, f, ensure_ascii=False, indent=2)
+
+def _is_null_coordinator(name):
+    if not name:
+        return True
+    val = str(name).strip().lower()
+    return val in {'0', '0.0', 'none', 'nan', '<na>', ''}
+
+def _rows_to_audit_df(rows):
+    df = pd.DataFrame(rows)
+    for col in ['main_coordinator', 'backup_coordinator', 'center_code', 'day', 'time', 'group_code', 'room_code']:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+        else:
+            df[col] = ""
+    return df
+
+def calculate_slots_and_dues(rows, slot_price=250):
+    if not rows:
+        return [], {"Total Slots": 0, "Total Amount (EGP)": 0}
+        
+    df = _rows_to_audit_df(rows)
+    
+    orig_names = {}
+    
+    main_df = df[['main_coordinator', 'center_code', 'day', 'time']].copy()
+    main_df['role'] = 'main'
+    main_df.rename(columns={'main_coordinator': 'coordinator'}, inplace=True)
+    
+    backup_df = df[['backup_coordinator', 'center_code', 'day', 'time']].copy()
+    backup_df['role'] = 'backup'
+    backup_df.rename(columns={'backup_coordinator': 'coordinator'}, inplace=True)
+    
+    stacked = pd.concat([main_df, backup_df], ignore_index=True)
+    
+    def process_coord(name):
+        if _is_null_coordinator(name):
+            return None
+        return name
+        
+    stacked['orig_name'] = stacked['coordinator'].apply(process_coord)
+    stacked.dropna(subset=['orig_name'], inplace=True)
+    stacked['coord_lower'] = stacked['orig_name'].str.lower()
+    
+    for _, row in stacked.iterrows():
+        if row['coord_lower'] not in orig_names:
+            orig_names[row['coord_lower']] = row['orig_name']
+            
+    slots = stacked.drop_duplicates(subset=['coord_lower', 'role', 'center_code', 'day', 'time'])
+    
+    if slots.empty:
+        return [], {"Total Slots": 0, "Total Amount (EGP)": 0}
+        
+    counts = slots.groupby(['coord_lower', 'role']).size().unstack(fill_value=0)
+    
+    if 'main' not in counts.columns:
+        counts['main'] = 0
+    if 'backup' not in counts.columns:
+        counts['backup'] = 0
+        
+    counts['Total Slots'] = counts['main'] + counts['backup']
+    counts['Amount (EGP)'] = counts['Total Slots'] * slot_price
+    
+    analysis_list = []
+    total_slots_all = 0
+    total_amount_all = 0
+    
+    counts = counts.sort_values(by='Amount (EGP)', ascending=False)
+    
+    for coord_lower, row in counts.iterrows():
+        total_slots_all += int(row['Total Slots'])
+        total_amount_all += int(row['Amount (EGP)'])
+        analysis_list.append({
+            "Coordinator": orig_names[coord_lower],
+            "Main Slots": int(row['main']),
+            "Backup Slots": int(row['backup']),
+            "Total Slots": int(row['Total Slots']),
+            "Amount (EGP)": int(row['Amount (EGP)'])
+        })
+        
+    totals_dict = {
+        "Total Slots": total_slots_all,
+        "Total Amount (EGP)": total_amount_all
+    }
+    
+    return analysis_list, totals_dict
+
+def detect_strict_conflicts(rows):
+    if not rows:
+        return {"coordinator_conflicts": [], "room_conflicts": []}
+        
+    df = _rows_to_audit_df(rows)
+    
+    coord_conflicts = []
+    room_conflicts = []
+    
+    main_c = df[['main_coordinator', 'day', 'time', 'center_code']].copy()
+    main_c.rename(columns={'main_coordinator': 'coordinator'}, inplace=True)
+    
+    backup_c = df[['backup_coordinator', 'day', 'time', 'center_code']].copy()
+    backup_c.rename(columns={'backup_coordinator': 'coordinator'}, inplace=True)
+    
+    all_c = pd.concat([main_c, backup_c], ignore_index=True)
+    all_c['coordinator'] = all_c['coordinator'].apply(lambda x: None if _is_null_coordinator(x) else x)
+    all_c.dropna(subset=['coordinator'], inplace=True)
+    
+    if not all_c.empty:
+        unique_c = all_c.drop_duplicates(subset=['coordinator', 'day', 'time', 'center_code'])
+        c_groups = unique_c.groupby(['coordinator', 'day', 'time'])['center_code'].apply(list).reset_index()
+        c_groups['center_count'] = c_groups['center_code'].apply(len)
+        c_conflicts = c_groups[c_groups['center_count'] > 1]
+        
+        for _, row in c_conflicts.iterrows():
+            coord_conflicts.append({
+                "Coordinator": row['coordinator'],
+                "Day": row['day'],
+                "Time": row['time'],
+                "Centers": row['center_code']
+            })
+            
+    r_groups = df.groupby(['center_code', 'room_code', 'day', 'time'])['group_code'].unique().reset_index()
+    r_groups['group_count'] = r_groups['group_code'].apply(len)
+    r_conflicts = r_groups[r_groups['group_count'] > 1]
+    
+    for _, row in r_conflicts.iterrows():
+        room_conflicts.append({
+            "Center Code": row['center_code'],
+            "Room Code": row['room_code'],
+            "Day": row['day'],
+            "Time": row['time'],
+            "Groups": list(row['group_code'])
+        })
+        
+    return {
+        "coordinator_conflicts": coord_conflicts,
+        "room_conflicts": room_conflicts
+    }

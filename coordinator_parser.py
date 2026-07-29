@@ -4,6 +4,9 @@ import datetime as dt
 import os
 import re
 import openpyxl
+from file_errors import (
+    FileReadError, EmptyFileError, MissingColumnsError, CoordinatorDirectoryError,
+)
 
 CANONICAL_COLUMNS = {
     "group_code": {"groupcode", "group", "groupid"},
@@ -33,9 +36,24 @@ COORDINATOR_DIRECTORY_COLUMNS = {
 
 def load_data(file_path: str, coordinator_file_path: str | None = None) -> dict:
     """Read the sessions file and optionally merge a separate coordinator phone directory."""
+    filename = os.path.basename(file_path)
     ext = os.path.splitext(file_path)[1].lower()
+
+    if ext not in {".xlsx", ".xlsm", ".csv"}:
+        raise FileReadError(
+            filename,
+            f"Unsupported file type '{ext}'. Only .xlsx, .xlsm, and .csv files are accepted.",
+        )
+
+    if not os.path.isfile(file_path):
+        raise FileReadError(filename, f"File not found at:\n{file_path}")
+
     if ext in {".xlsx", ".xlsm"}:
-        wb = openpyxl.load_workbook(file_path, data_only=True)
+        try:
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+        except Exception as exc:
+            raise FileReadError(filename, str(exc)) from exc
+
         sheets = []
         coordinator_directory = {}
         for ws in wb.worksheets:
@@ -51,7 +69,7 @@ def load_data(file_path: str, coordinator_file_path: str | None = None) -> dict:
             coordinator_directory.update(_read_coordinator_directory(sheet_data["headers"], sheet_data["rows"]))
 
         if not sheets:
-            raise ValueError("The selected file is empty.")
+            raise EmptyFileError(filename)
 
         session_sheet = _choose_session_sheet(sheets, wb.active.title)
         if coordinator_file_path:
@@ -63,54 +81,68 @@ def load_data(file_path: str, coordinator_file_path: str | None = None) -> dict:
             "coordinator_directory": coordinator_directory,
         }
 
-    if ext == ".csv":
-        for encoding in ("utf-8-sig", "utf-8", "cp1256"):
-            try:
-                with open(file_path, newline="", encoding=encoding) as f:
-                    reader = csv.reader(f)
-                    rows = list(reader)
-                break
-            except UnicodeDecodeError:
-                rows = []
-        if not rows:
-            raise ValueError("The selected CSV file is empty or could not be decoded.")
-        coordinator_directory = load_coordinator_directory(coordinator_file_path) if coordinator_file_path else {}
-        return {"headers": [value_to_text(v) for v in rows[0]], "rows": rows[1:], "coordinator_directory": coordinator_directory}
-
-    raise ValueError("Please choose an .xlsx, .xlsm, or .csv file.")
+    # CSV path
+    rows = []
+    for encoding in ("utf-8-sig", "utf-8", "cp1256"):
+        try:
+            with open(file_path, newline="", encoding=encoding) as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+            break
+        except UnicodeDecodeError:
+            rows = []
+    if not rows:
+        raise EmptyFileError(filename)
+    coordinator_directory = load_coordinator_directory(coordinator_file_path) if coordinator_file_path else {}
+    return {"headers": [value_to_text(v) for v in rows[0]], "rows": rows[1:], "coordinator_directory": coordinator_directory}
 
 def load_coordinator_directory(file_path: str) -> dict:
     """Read a coordinator data file with Coordinator name + phone number columns."""
+    filename = os.path.basename(file_path)
     ext = os.path.splitext(file_path)[1].lower()
+
+    if ext not in {".xlsx", ".xlsm", ".csv"}:
+        raise FileReadError(
+            filename,
+            f"Unsupported file type '{ext}'. Only .xlsx, .xlsm, and .csv files are accepted.",
+        )
+
     if ext in {".xlsx", ".xlsm"}:
-        wb = openpyxl.load_workbook(file_path, data_only=True)
+        try:
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+        except Exception as exc:
+            raise FileReadError(filename, str(exc)) from exc
+
         directory = {}
+        all_headers = []
         for ws in wb.worksheets:
             rows = list(ws.iter_rows(values_only=True))
             if not rows:
                 continue
             headers = [value_to_text(v) for v in rows[0]]
+            all_headers.extend(h for h in headers if h)
             directory.update(_read_coordinator_directory(headers, [list(r) for r in rows[1:]]))
         if not directory:
-            raise ValueError("Coordinator data file must contain 'Coordinator name' and 'phone number' columns.")
+            raise CoordinatorDirectoryError(filename, detected_headers=all_headers or None)
         return directory
 
-    if ext == ".csv":
-        for encoding in ("utf-8-sig", "utf-8", "cp1256"):
-            try:
-                with open(file_path, newline="", encoding=encoding) as f:
-                    rows = list(csv.reader(f))
-                break
-            except UnicodeDecodeError:
-                rows = []
-        if not rows:
-            raise ValueError("The selected coordinator CSV file is empty or could not be decoded.")
-        directory = _read_coordinator_directory([value_to_text(v) for v in rows[0]], rows[1:])
-        if not directory:
-            raise ValueError("Coordinator data file must contain 'Coordinator name' and 'phone number' columns.")
-        return directory
-
-    raise ValueError("Please choose an .xlsx, .xlsm, or .csv coordinator data file.")
+    # CSV path
+    rows = []
+    for encoding in ("utf-8-sig", "utf-8", "cp1256"):
+        try:
+            with open(file_path, newline="", encoding=encoding) as f:
+                rows = list(csv.reader(f))
+            break
+        except UnicodeDecodeError:
+            rows = []
+    if not rows:
+        raise EmptyFileError(filename)
+    headers = [value_to_text(v) for v in rows[0]]
+    directory = _read_coordinator_directory(headers, rows[1:])
+    if not directory:
+        detected = [h for h in headers if h]
+        raise CoordinatorDirectoryError(filename, detected_headers=detected or None)
+    return directory
 
 def validate_columns(data: dict) -> list[dict]:
     """Map supported column-name variations into the canonical coordinator schema."""
@@ -122,17 +154,34 @@ def validate_columns(data: dict) -> list[dict]:
     has_phone_source = any(col in column_map for col in ROLE_PHONE_COLUMNS) or bool(coordinator_directory)
 
     if missing or not has_role_names or not has_phone_source:
-        parts = []
-        if missing:
-            parts.append("Missing required columns: " + ", ".join(missing))
+        all_missing = list(missing)
+        extra_notes = []
         if not has_role_names:
-            parts.append("Add Main Coordinator and/or Backup Coordinator columns to the sessions sheet.")
-        if not has_phone_source:
-            parts.append(
-                "Add phone columns to the sessions sheet, or add a separate coordinators sheet with "
-                "'Coordinator name' and 'phone number'."
+            all_missing.extend(col for col in ROLE_NAME_COLUMNS if col not in column_map)
+            extra_notes.append(
+                "No coordinator name columns were found. Add a 'Main Coordinator' "
+                "and/or 'Backup Coordinator' column to the sessions sheet."
             )
-        raise ValueError("\n".join(parts))
+        if not has_phone_source:
+            all_missing.extend(col for col in ROLE_PHONE_COLUMNS if col not in column_map)
+            extra_notes.append(
+                "No phone columns were found. Either add phone columns to the sessions sheet, "
+                "or provide a separate coordinators data file with 'Coordinator name' and "
+                "'phone number' columns."
+            )
+
+        detected = [h for h in headers if h]
+        # Build accepted-name hints only for actually-missing columns
+        hints = {}
+        for col in all_missing:
+            if col in CANONICAL_COLUMNS:
+                hints[col] = CANONICAL_COLUMNS[col]
+
+        raise MissingColumnsError(
+            missing=all_missing,
+            detected=detected if detected else None,
+            accepted_hints=hints if hints else None,
+        )
 
     canonical_rows = []
     for source_row in data["rows"]:
@@ -156,7 +205,10 @@ def validate_columns(data: dict) -> list[dict]:
         canonical_rows.append(row)
 
     if not canonical_rows:
-        raise ValueError("No usable data rows were found in the selected file.")
+        sheet_name = data.get("sheet_name", "unknown")
+        raise EmptyFileError(
+            f"sheet '{sheet_name}'"
+        )
     return canonical_rows
 
 def clean_phone_number(phone) -> str:

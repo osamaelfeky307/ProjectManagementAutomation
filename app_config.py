@@ -6,25 +6,32 @@ import os
 
 # --- Color Palette ---
 COLORS = {
-    "bg_dark": "#0f0f1a",
-    "bg_card": "#1a1a2e",
-    "bg_sidebar": "#12121f",
-    "bg_input": "#252540",
-    "accent_blue": "#4f6df5",
-    "accent_purple": "#7c3aed",
-    "accent_cyan": "#06b6d4",
-    "accent_gradient_start": "#4f6df5",
-    "accent_gradient_end": "#7c3aed",
-    "text_primary": "#e8e8f0",
-    "text_secondary": "#9ca3af",
-    "text_muted": "#6b7280",
-    "border": "#2a2a45",
-    "status_red": "#ef4444",
-    "status_yellow": "#f59e0b",
-    "status_green": "#22c55e",
-    "hover": "#2d2d4a",
-    "danger": "#dc2626",
-    "success": "#16a34a",
+    # Backgrounds
+    "bg_dark": "#111113",         # Main app background (deepest)
+    "bg_sidebar": "#161618",      # Sidebar background (slightly elevated)
+    "bg_card": "#1c1c1f",         # Cards/panels background
+    "bg_input": "#222225",        # Input fields
+    "hover": "#2a2a2e",           # General hover state
+    "border": "#28282c",          # Subtle borders
+
+    # Text
+    "text_primary": "#F2F2F2",    # High contrast primary text
+    "text_secondary": "#A0A0A5",  # Muted secondary text
+    "text_muted": "#707075",      # Disabled or very muted text
+
+    # Brand Accents (Sleek Indigo/Purple)
+    "accent_blue": "#5E6AD2",     # Primary brand color
+    "accent_purple": "#7D7AFF",   # Accent / Hover for brand
+    "accent_cyan": "#12A594",     # Muted Teal instead of bright cyan
+    "accent_gradient_start": "#5E6AD2",
+    "accent_gradient_end": "#7D7AFF",
+
+    # Status Indicators (Refined, non-harsh)
+    "status_red": "#E5484D",      # Linear-like red
+    "status_yellow": "#FFB224",   # Soft warning yellow
+    "status_green": "#30A46C",    # Soft success green
+    "danger": "#E5484D",
+    "success": "#30A46C",
 }
 
 # --- Default Templates ---

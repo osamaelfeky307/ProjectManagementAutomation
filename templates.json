@@ -6,5 +6,8 @@
   "5. Session Closing": "Hello Eng. *{name}*, ⏰\n\nYour session for group *{group_code}* is nearing its scheduled end time.\n\nPlease make sure to close the session exactly on time (not earlier and not later)",
   "6. Post-Session Thanks": "Hello Eng. *{name}*, 🌟\n\nThank you for completing today's session for group *{group_code}*.\n\nWe appreciate your effort and commitment, and we hope the session went smoothly 👏🏼❤️",
   "7. Session Time Exceeded": "Hello Eng. *{name}*, ⚠️\n\nYour session for group *{group_code}* has exceeded the scheduled end time.\n\nPlease conclude the session and close the meeting as soon as possible ",
-  "test": "Hello Eng. {name}, your {group_code} group..."
+  "EG - 1. Day-Before": "أهلاً {name}، 👋\n\nبنفكرك إن عندك سيشن لمجموعة {group_code} بكرة الساعة {time}. 📅\n\nياريت تكون {g:موجود:موجودة} قبل ميعاد السيشن بـ 15 دقيقة عشان نلحق نظبط كل حاجة.\n\nشكراً {g:ليك:ليكي}،\neyouth Coordination",
+  "EG - 2. 15-Min Alert": "أهلاً {name}، 🚨\n\nالسيشن بتاع مجموعة {group_code} الساعة {time} هتبدأ كمان شوية.\n\nطمنا إنك {g:جاهز:جاهزة} للبواية؟",
+  "EG - 3. Mid-Session Check": "أهلاً {name}، 👋\n\nطمنا أخبار السيشن إيه لحد دلوقتي؟ كله تمام ولا في أي مشكلة معاك؟",
+  "EG - 4. Post-Session Thanks": "ألف شكر يا {name}، 🌟\n\nعاش جداً على مجهودك في سيشن النهاردة لمجموعة {group_code}.\n\nيارب تكون السيشن كانت لطيفة وعدت على خير 👏🏼❤️"
 }

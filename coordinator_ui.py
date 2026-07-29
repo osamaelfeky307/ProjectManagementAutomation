@@ -9,15 +9,18 @@ from tkinter.scrolledtext import ScrolledText
 import customtkinter as ctk
 from app_config import COLORS as C
 from engine import MessageEngine
-from ui_components import StatusDot, StyledButton
+from ui_components import StatusDot, StyledButton, StyledEntry, StyledTextbox, StyledOptionMenu, CardFrame, SidebarButton
 from collections import Counter, defaultdict
 from coordinator_parser import clean_phone_number, value_to_text, load_data, validate_columns, _person_key
+from file_errors import FileUploadError
 from coordinator_logic import (
     load_coordinator_templates, save_coordinator_templates, generate_coordinator_messages,
     calculate_slot_analysis, detect_conflicts, preview_messages, send_messages, save_outputs,
     DEFAULT_SLOT_PRICE, DEFAULT_MAIN_LIMIT, DEFAULT_BACKUP_LIMIT, _template_for_display,
     DEFAULT_COORDINATOR_TEMPLATES, _log_row,
+    calculate_slots_and_dues, detect_strict_conflicts,
 )
+from report_generator import generate_pdf_report, generate_xlsx_report
 
 COORD_STATUS_READY = "Ready"
 COORD_STATUS_SENDING = "Sending"
@@ -32,35 +35,7 @@ COORD_STATUS_COLORS = {
     COORD_STATUS_SKIPPED: C["text_muted"],
 }
 
-def choose_recipient_type(parent=None) -> str | None:
-    """Ask the user whether this run should target instructors or coordinators."""
-    choice = {"value": None}
-    dlg = ctk.CTkToplevel(parent) if parent else ctk.CTk()
 
-    dlg.title("Choose Recipients")
-    dlg.geometry("420x220")
-    dlg.resizable(False, False)
-    dlg.configure(fg_color="#0f0f1a")
-    if parent:
-        dlg.transient(parent)
-        dlg.grab_set()
-
-    def pick(value: str):
-        choice["value"] = value
-        dlg.destroy()
-
-    ctk.CTkLabel(
-        dlg,
-        text="Who do you want to send messages to?",
-        font=ctk.CTkFont(size=18, weight="bold"),
-        text_color="#e8e8f0",
-    ).pack(pady=(28, 16))
-    ctk.CTkButton(dlg, text="1. Instructors", width=250, command=lambda: pick("instructors")).pack(pady=8)
-    ctk.CTkButton(dlg, text="2. Coordinators", width=250, command=lambda: pick("coordinators")).pack(pady=8)
-
-    dlg.protocol("WM_DELETE_WINDOW", lambda: pick(None))
-    dlg.mainloop()
-    return choice["value"]
 
 def run_coordinator_wizard(parent=None):
     """GUI wizard for coordinator file selection, preview, optional sending, and outputs."""
@@ -74,16 +49,9 @@ def run_coordinator_wizard(parent=None):
 
     coordinator_file_path = filedialog.askopenfilename(
         parent=parent,
-        title="Choose coordinators data Excel or CSV file",
+        title="Choose coordinators data Excel or CSV file (Optional)",
         filetypes=[("Excel or CSV", "*.xlsx *.xlsm *.csv"), ("Excel", "*.xlsx *.xlsm"), ("CSV", "*.csv")],
     )
-    if not coordinator_file_path:
-        messagebox.showwarning(
-            "Coordinator Data Required",
-            "Please choose the coordinators data file with 'Coordinator name' and 'phone number' columns.",
-            parent=parent,
-        )
-        return False
 
     slot_price = simpledialog.askfloat(
         "Slot Price", "What is the slot price?", initialvalue=DEFAULT_SLOT_PRICE, minvalue=0, parent=parent
@@ -110,8 +78,20 @@ def run_coordinator_wizard(parent=None):
         messages, skipped_logs = generate_coordinator_messages(rows, slot_price, main_limit, backup_limit)
         analysis = calculate_slot_analysis(rows, slot_price, main_limit, backup_limit)
         conflicts = detect_conflicts(rows, main_limit, backup_limit)
+    except FileUploadError as exc:
+        messagebox.showerror(
+            exc.title,
+            exc.message + ("\n\n" + "\n".join(f"• {s}" for s in exc.suggestions) if exc.suggestions else ""),
+            parent=parent,
+        )
+        return False
     except Exception as exc:
-        messagebox.showerror("Coordinator Import Error", str(exc), parent=parent)
+        messagebox.showerror(
+            "Coordinator Import Error",
+            f"An unexpected error occurred while processing the files:\n\n{exc}\n\n"
+            f"If this keeps happening, check that the files are valid and not open in another program.",
+            parent=parent,
+        )
         return False
 
     if not messages:
@@ -189,8 +169,15 @@ class CoordinatorApp(ctk.CTk):
         self.geometry("1280x780")
         self.minsize(1100, 650)
         self.configure(fg_color=C["bg_dark"])
+        self.after(0, lambda: self.state("zoomed"))
 
         self.engine = MessageEngine()
+        
+        import db_manager
+        db_manager.init_db()
+        db_manager.clear_temporary_coordinator_states()
+        self.date_filter_var = ctk.StringVar(value="All Saved")
+
         self.sessions_file = ""
         self.coordinators_file = ""
         self.output_dir = os.getcwd()
@@ -200,6 +187,9 @@ class CoordinatorApp(ctk.CTk):
         self.log_rows = []
         self.conflicts = []
         self.upload_summary_text = ""
+        self.strict_analysis = []
+        self.strict_totals = {}
+        self.strict_conflicts = {"coordinator_conflicts": [], "room_conflicts": []}
         self.row_widgets = {}
         self._sending = False
         self._stop_event = threading.Event()
@@ -221,6 +211,7 @@ class CoordinatorApp(ctk.CTk):
 
         self._build_layout()
         self._load_template_text()
+        self._update_date_menu()
         self._render_table()
 
     def _build_layout(self):
@@ -272,7 +263,7 @@ class CoordinatorApp(ctk.CTk):
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color=C["text_primary"],
         ).pack(anchor="w", padx=14, pady=(12, 8))
-        self.tpl_menu = ctk.CTkOptionMenu(
+        self.tpl_menu = StyledOptionMenu(
             tpl_frame,
             variable=self.tpl_var,
             values=list(self.templates.keys()),
@@ -282,13 +273,13 @@ class CoordinatorApp(ctk.CTk):
             command=lambda _: self._load_template_text(),
         )
         self.tpl_menu.pack(padx=14, pady=(0, 8))
-        self.tpl_editor = ctk.CTkTextbox(tpl_frame, height=170, fg_color=C["bg_input"], wrap="word")
+        self.tpl_editor = StyledTextbox(tpl_frame, height=170, fg_color=C["bg_input"], wrap="word")
         self.tpl_editor.pack(fill="x", padx=14, pady=(0, 8))
         self.tpl_editor.bind("<KeyRelease>", lambda _e: self._update_template_hint())
 
         placeholder_row = ctk.CTkFrame(tpl_frame, fg_color="transparent")
         placeholder_row.pack(fill="x", padx=14, pady=(0, 8))
-        for placeholder in ("{name}", "{full_name}", "{sections}"):
+        for placeholder in ("{name}", "{sections}", "{g:مستعد:مستعدة}"):
             StyledButton(
                 placeholder_row,
                 text=placeholder,
@@ -310,7 +301,7 @@ class CoordinatorApp(ctk.CTk):
         StyledButton(tpl_btns2, text="Regenerate", width=104, color=C["accent_cyan"], hover=C["accent_blue"], command=self._regenerate_from_template).pack(side="left", padx=2)
         self.template_hint = ctk.CTkLabel(
             tpl_frame,
-            text="Use {name}, {first_name}, {full_name}, {sections}, {main_section}, {backup_section}, {closing}.",
+            text="Use {name}, {first_name}, {full_name}, {sections}, {main_section}, {backup_section}, {closing}, {g:male:female}.",
             text_color=C["text_muted"],
             font=ctk.CTkFont(size=10),
             wraplength=245,
@@ -318,17 +309,7 @@ class CoordinatorApp(ctk.CTk):
         )
         self.template_hint.pack(anchor="w", padx=14, pady=(0, 12))
 
-        cfg = ctk.CTkFrame(self.sidebar, fg_color=C["bg_card"], corner_radius=8)
-        cfg.pack(fill="x", padx=18, pady=(0, 18))
-        ctk.CTkLabel(cfg, text="Settings", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=14, pady=(12, 8))
-        self._add_setting_entry(cfg, "Slot price", self.slot_price_var)
-        self._add_setting_entry(cfg, "Main limit", self.main_limit_var)
-        self._add_setting_entry(cfg, "Backup limit", self.backup_limit_var)
-        self._add_setting_entry(cfg, "Delay min", self.delay_min_var)
-        self._add_setting_entry(cfg, "Delay max", self.delay_max_var)
-        self._add_setting_entry(cfg, "Wait time", self.wait_time_var)
-        self._add_setting_entry(cfg, "Send wait", self.send_wait_var)
-        self._add_setting_entry(cfg, "Close time", self.close_time_var, bottom=14)
+
 
         self.send_selected_btn = StyledButton(
             self.sidebar,
@@ -383,7 +364,7 @@ class CoordinatorApp(ctk.CTk):
             text_color=C["text_primary"],
         ).pack(side="left", padx=(0, 20))
 
-        search = ctk.CTkEntry(
+        search = StyledEntry(
             top,
             textvariable=self.search_var,
             placeholder_text="Search name, phone, or role",
@@ -412,14 +393,7 @@ class CoordinatorApp(ctk.CTk):
             hover=C["accent_purple"],
             command=self._upload_files,
         ).pack(side="left", padx=(10, 6), pady=6)
-        StyledButton(
-            toolbar,
-            text="Analysis",
-            width=118,
-            color=C["bg_input"],
-            hover=C["hover"],
-            command=self._show_analysis_dialog,
-        ).pack(side="left", padx=6, pady=6)
+
         StyledButton(
             toolbar,
             text="Send Selected",
@@ -462,24 +436,42 @@ class CoordinatorApp(ctk.CTk):
         ).pack(side="left", padx=6, pady=6)
         StyledButton(
             toolbar,
+            text="Export Excel",
+            width=100,
+            color=C["bg_input"],
+            hover=C["hover"],
+            command=self._export_messages_quick,
+        ).pack(side="left", padx=6, pady=6)
+
+        self.date_filter_menu = StyledOptionMenu(
+            toolbar,
+            variable=self.date_filter_var,
+            values=["All Saved"],
+            width=120,
+            fg_color=C["bg_input"],
+            button_color=C["accent_blue"],
+            command=self._on_date_filter_change,
+        )
+        self.delete_date_btn = ctk.CTkButton(toolbar, text="🗑️", width=30, fg_color="transparent",
+                                             hover_color=C["danger"], text_color=C["text_primary"],
+                                             command=self._delete_current_date)
+        self.delete_date_btn.pack(side="right", padx=(0, 14), pady=6)
+
+        self.date_filter_menu.pack(side="right", padx=(10, 2), pady=6)
+
+        StyledButton(
+            toolbar,
             text="Regenerate",
             width=112,
             color=C["accent_purple"],
             hover=C["accent_blue"],
             command=self._regenerate_from_template,
         ).pack(side="left", padx=6, pady=6)
-        StyledButton(
-            toolbar,
-            text="Templates",
-            width=106,
-            color=C["text_muted"],
-            hover=C["hover"],
-            command=self._open_template_dialog,
-        ).pack(side="left", padx=6, pady=6)
+
         StyledButton(
             toolbar,
             text="Export Msgs",
-            width=106,
+            width=120,
             color=C["bg_input"],
             hover=C["hover"],
             command=self._export_messages_quick,
@@ -535,8 +527,13 @@ class CoordinatorApp(ctk.CTk):
         )
         self.progress_eta_label.pack(side="right")
 
-        self.header_frame = ctk.CTkFrame(self.main_area, fg_color=C["bg_card"], height=38, corner_radius=0)
-        self.header_frame.pack(fill="x", padx=20)
+        self.tabview = ctk.CTkTabview(self.main_area, fg_color=C["bg_dark"])
+        self.tabview.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self.tab_messages = self.tabview.add("Messages")
+        self.tab_analysis = self.tabview.add("Analysis")
+
+        self.header_frame = ctk.CTkFrame(self.tab_messages, fg_color=C["bg_card"], height=38, corner_radius=0)
+        self.header_frame.pack(fill="x", padx=0)
         self.header_frame.pack_propagate(False)
         ctk.CTkCheckBox(
             self.header_frame, text="", width=42,
@@ -557,11 +554,11 @@ class CoordinatorApp(ctk.CTk):
                 font=ctk.CTkFont(size=12, weight="bold"),
             ).pack(side="left", padx=3)
 
-        self.table_frame = ctk.CTkScrollableFrame(self.main_area, fg_color=C["bg_dark"], corner_radius=0)
-        self.table_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self.table_frame = ctk.CTkScrollableFrame(self.tab_messages, fg_color=C["bg_dark"], corner_radius=0)
+        self.table_frame.pack(fill="both", expand=True, padx=0, pady=(0, 10))
 
-        preview_frame = ctk.CTkFrame(self.main_area, fg_color=C["bg_card"], height=170, corner_radius=8)
-        preview_frame.pack(fill="x", padx=20, pady=(0, 16))
+        preview_frame = ctk.CTkFrame(self.tab_messages, fg_color=C["bg_card"], height=170, corner_radius=8)
+        preview_frame.pack(fill="x", padx=0, pady=(0, 16))
         preview_frame.pack_propagate(False)
         ctk.CTkLabel(
             preview_frame,
@@ -569,7 +566,7 @@ class CoordinatorApp(ctk.CTk):
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color=C["text_primary"],
         ).pack(anchor="w", padx=12, pady=(10, 4))
-        self.preview_box = ctk.CTkTextbox(preview_frame, fg_color=C["bg_input"], height=105, wrap="word")
+        self.preview_box = StyledTextbox(preview_frame, fg_color=C["bg_input"], height=105, wrap="word")
         self.preview_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self.preview_box.insert("1.0", "Select a row and click Preview.")
         self.preview_box.configure(state="disabled")
@@ -578,7 +575,7 @@ class CoordinatorApp(ctk.CTk):
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", padx=14, pady=(0, bottom))
         ctk.CTkLabel(row, text=label, width=92, anchor="w", text_color=C["text_secondary"]).pack(side="left")
-        ctk.CTkEntry(row, textvariable=variable, width=92, fg_color=C["bg_input"]).pack(side="right")
+        StyledEntry(row, textvariable=variable, width=92, fg_color=C["bg_input"]).pack(side="right")
 
     def _open_settings_dialog(self):
         dlg = ctk.CTkToplevel(self)
@@ -612,7 +609,7 @@ class CoordinatorApp(ctk.CTk):
             row = ctk.CTkFrame(content, fg_color="transparent")
             row.pack(fill="x", padx=18, pady=6)
             ctk.CTkLabel(row, text=label, width=130, anchor="w", text_color=C["text_secondary"]).pack(side="left")
-            ctk.CTkEntry(row, textvariable=variable, width=160, fg_color=C["bg_input"]).pack(side="right")
+            StyledEntry(row, textvariable=variable, width=160, fg_color=C["bg_input"]).pack(side="right")
 
         hint = ctk.CTkLabel(
             content,
@@ -753,7 +750,7 @@ class CoordinatorApp(ctk.CTk):
         top_row = ctk.CTkFrame(content, fg_color="transparent")
         top_row.pack(fill="x", padx=14, pady=(14, 8))
         ctk.CTkLabel(top_row, text="Template", width=85, anchor="w", text_color=C["text_secondary"]).pack(side="left")
-        menu = ctk.CTkOptionMenu(
+        menu = StyledOptionMenu(
             top_row,
             variable=selected_var,
             values=list(self.templates.keys()),
@@ -763,7 +760,7 @@ class CoordinatorApp(ctk.CTk):
         )
         menu.pack(side="left")
 
-        editor = ctk.CTkTextbox(content, fg_color=C["bg_input"], wrap="word")
+        editor = StyledTextbox(content, fg_color=C["bg_input"], wrap="word")
         editor.pack(fill="both", expand=True, padx=14, pady=(0, 10))
 
         hint = ctk.CTkLabel(
@@ -858,16 +855,9 @@ class CoordinatorApp(ctk.CTk):
             return
         coordinators_file = filedialog.askopenfilename(
             parent=self,
-            title="Choose coordinators data Excel or CSV file",
+            title="Choose coordinators data Excel or CSV file (Optional)",
             filetypes=[("Excel or CSV", "*.xlsx *.xlsm *.csv"), ("Excel", "*.xlsx *.xlsm"), ("CSV", "*.csv")],
         )
-        if not coordinators_file:
-            messagebox.showwarning(
-                "Coordinator Data Required",
-                "Please choose the coordinators data file with 'Coordinator name' and 'phone number' columns.",
-                parent=self,
-            )
-            return
 
         self.sessions_file = sessions_file
         self.coordinators_file = coordinators_file
@@ -890,8 +880,23 @@ class CoordinatorApp(ctk.CTk):
             )
             self.analysis = calculate_slot_analysis(self.rows, slot_price, main_limit, backup_limit)
             self.conflicts = detect_conflicts(self.rows, main_limit, backup_limit)
+            self.strict_analysis, self.strict_totals = calculate_slots_and_dues(self.rows, slot_price)
+            self.strict_conflicts = detect_strict_conflicts(self.rows)
+        except FileUploadError as exc:
+            messagebox.showerror(
+                exc.title,
+                exc.message + ("\n\n" + "\n".join(f"• {s}" for s in exc.suggestions) if exc.suggestions else ""),
+                parent=self,
+            )
+            self.status_var.set(f"Import failed: {exc.title}")
+            return
         except Exception as exc:
-            messagebox.showerror("Coordinator Import Error", str(exc), parent=self)
+            messagebox.showerror(
+                "Coordinator Import Error",
+                f"An unexpected error occurred while processing the files:\n\n{exc}\n\n"
+                f"If this keeps happening, check that the files are valid and not open in another program.",
+                parent=self,
+            )
             self.status_var.set(f"Import failed: {exc}")
             return
 
@@ -906,7 +911,7 @@ class CoordinatorApp(ctk.CTk):
         self.log_rows = list(skipped_logs)
         self.upload_summary_text = self._build_upload_summary(skipped_logs)
         self._file_label.configure(
-            text=f"Sessions:\n{os.path.basename(self.sessions_file)}\n\nCoordinators:\n{os.path.basename(self.coordinators_file)}"
+            text=f"Sessions:\n{os.path.basename(self.sessions_file)}\n\nCoordinators:\n{os.path.basename(self.coordinators_file) if self.coordinators_file else 'None'}"
         )
         conflict_note = f" | Conflicts: {len(self.conflicts)}" if self.conflicts else ""
         self.status_var.set(f"Generated {len(self.messages)} coordinator messages.{conflict_note}")
@@ -917,6 +922,100 @@ class CoordinatorApp(ctk.CTk):
         self._show_upload_summary_if_needed()
         if self.conflicts:
             self._show_conflicts()
+
+        save_for_later = messagebox.askyesno("Save Sessions", "Files loaded and messages generated successfully.\n\nDo you want to save these sessions in the database for later?\n(If No, they will be deleted when you close the app)", parent=self)
+        
+        if save_for_later:
+            from datetime import date
+            today_str = date.today().strftime("%Y-%m-%d")
+            target_date = simpledialog.askstring("Save Sessions", "Enter the target date (e.g., Friday 24 Oct, or 2026-07-29):", initialvalue=today_str, parent=self)
+            if not target_date or not target_date.strip():
+                target_date = "Temporary"
+            else:
+                target_date = target_date.strip()
+        else:
+            target_date = "Temporary"
+
+        state_dict = {
+            "rows": self.rows,
+            "messages": self.messages,
+            "analysis": self.analysis,
+            "log_rows": self.log_rows,
+            "conflicts": self.conflicts,
+            "upload_summary_text": self.upload_summary_text,
+            "strict_analysis": self.strict_analysis,
+            "strict_totals": self.strict_totals,
+            "strict_conflicts": self.strict_conflicts,
+            "sessions_file": self.sessions_file,
+            "coordinators_file": self.coordinators_file
+        }
+        import db_manager
+        db_manager.save_coordinator_state(target_date, state_dict)
+        self._update_date_menu()
+        self.date_filter_var.set(target_date)
+
+
+    def _update_date_menu(self):
+        import db_manager
+        dates = db_manager.get_all_coordinator_dates()
+        vals = ["All Saved"] + dates
+        if hasattr(self, 'date_filter_menu'):
+            self.date_filter_menu.configure(values=vals)
+            if self.date_filter_var.get() not in vals:
+                self.date_filter_var.set("All Saved")
+                
+    def _delete_current_date(self):
+        date_val = self.date_filter_var.get()
+        if date_val == "All Saved":
+            messagebox.showwarning("Cannot Delete", "Please select a specific date to delete.")
+            return
+            
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete all saved data for {date_val}?"):
+            import db_manager
+            db_manager.delete_date(date_val)
+            self.date_filter_var.set("All Saved")
+            self._update_date_menu()
+            self._on_date_filter_change(None)
+
+    def _on_date_filter_change(self, _=None):
+        date_filter = self.date_filter_var.get()
+        if date_filter != "All Saved":
+            self._load_state_from_db(date_filter)
+        else:
+            self.messages = []
+            self.rows = []
+            self._render_table()
+            self._file_label.configure(text="No files loaded.")
+            self.status_var.set("Select a saved date or upload files.")
+
+    def _load_state_from_db(self, target_date):
+        import db_manager
+        state = db_manager.get_coordinator_state(target_date)
+        if state:
+            self.rows = state.get("rows", [])
+            self.messages = state.get("messages", [])
+            self.analysis = state.get("analysis", [])
+            self.log_rows = state.get("log_rows", [])
+            self.conflicts = state.get("conflicts", [])
+            self.upload_summary_text = state.get("upload_summary_text", "")
+            self.strict_analysis = state.get("strict_analysis", [])
+            self.strict_totals = state.get("strict_totals", {})
+            self.strict_conflicts = state.get("strict_conflicts", {"coordinator_conflicts": [], "room_conflicts": []})
+            self.sessions_file = state.get("sessions_file", "")
+            self.coordinators_file = state.get("coordinators_file", "")
+            
+            s_file = os.path.basename(self.sessions_file) if self.sessions_file else "None"
+            c_file = os.path.basename(self.coordinators_file) if self.coordinators_file else "None"
+            self._file_label.configure(
+                text=f"Loaded DB Date: {target_date}\nSessions: {s_file}\nCoordinators: {c_file}"
+            )
+            conflict_note = f" | Conflicts: {len(self.conflicts)}" if self.conflicts else ""
+            self.status_var.set(f"Loaded {len(self.messages)} coordinator messages from DB.{conflict_note}")
+            
+            self._render_table()
+            self._refresh_stats()
+            if self.messages:
+                self._show_message_in_preview(0)
 
     def _render_table(self):
         for child in self.table_frame.winfo_children():
@@ -997,6 +1096,7 @@ class CoordinatorApp(ctk.CTk):
             self.row_widgets[idx] = {"selected": selected_var, "dot": dot, "status": status_lbl, "frame": row}
 
         self._refresh_stats()
+        self._render_analysis()
 
     def _row_label(self, parent, text, width):
         display = value_to_text(text)
@@ -1043,10 +1143,10 @@ class CoordinatorApp(ctk.CTk):
             row = ctk.CTkFrame(content, fg_color="transparent")
             row.pack(fill="x", padx=14, pady=(14, 0))
             ctk.CTkLabel(row, text=label, width=70, anchor="w", text_color=C["text_secondary"]).pack(side="left")
-            ctk.CTkEntry(row, textvariable=variable, fg_color=C["bg_input"]).pack(side="left", fill="x", expand=True)
+            StyledEntry(row, textvariable=variable, fg_color=C["bg_input"]).pack(side="left", fill="x", expand=True)
 
         ctk.CTkLabel(content, text="Message", text_color=C["text_secondary"], anchor="w").pack(anchor="w", padx=14, pady=(16, 4))
-        message_box = ctk.CTkTextbox(content, fg_color=C["bg_input"], wrap="word")
+        message_box = StyledTextbox(content, fg_color=C["bg_input"], wrap="word")
         message_box.pack(fill="both", expand=True, padx=14, pady=(0, 14))
         message_box.insert("1.0", msg.get("Message", ""))
 
@@ -1232,18 +1332,183 @@ class CoordinatorApp(ctk.CTk):
         ]
         _show_text_dialog(self, "Coordinator Conflict Warnings", "\n".join(lines))
 
-    def _show_analysis_dialog(self):
-        if not self.analysis:
-            messagebox.showinfo("Analysis", "Upload files first to generate slot analysis.", parent=self)
+    def _render_analysis(self):
+        for child in self.tab_analysis.winfo_children():
+            child.destroy()
+            
+        if not self.strict_analysis and not self.analysis:
+            lbl = ctk.CTkLabel(self.tab_analysis, text="No analysis data available. Upload files or select a date.", text_color=C["text_muted"], font=ctk.CTkFont(size=14))
+            lbl.pack(pady=40)
             return
-        headers = [
-            "Coordinator", "Main Sessions", "Main Slots", "Backup Sessions", "Backup Slots",
-            "Paid Unique Slots", "Amount", "Status",
+
+        top_bar = ctk.CTkFrame(self.tab_analysis, fg_color="transparent")
+        top_bar.pack(fill="x", padx=20, pady=(16, 0))
+        StyledButton(top_bar, text="Export Report", width=130, color=C["accent_blue"], hover=C["accent_purple"], command=self._show_report_export_dialog).pack(side="right")
+
+        # ── Summary cards at top ──────────────────────────────────────────
+        cards_frame = ctk.CTkFrame(self.tab_analysis, fg_color="transparent", height=80)
+        cards_frame.pack(fill="x", padx=20, pady=(8, 8))
+        cards_frame.pack_propagate(False)
+
+        total_coordinators = len(self.strict_analysis)
+        total_slots = self.strict_totals.get("Total Slots", 0)
+        total_amount = self.strict_totals.get("Total Amount (EGP)", 0)
+        coord_conflicts = len(self.strict_conflicts.get("coordinator_conflicts", []))
+        room_conflicts = len(self.strict_conflicts.get("room_conflicts", []))
+        total_conflicts = coord_conflicts + room_conflicts
+
+        card_data = [
+            ("👥 Coordinators", str(total_coordinators), C["accent_blue"]),
+            ("📊 Total Slots", str(total_slots), C["accent_cyan"]),
+            ("💰 Total Amount", f"{total_amount:,.0f} EGP", C["status_green"]),
+            ("⚠️ Conflicts", str(total_conflicts), C["danger"] if total_conflicts > 0 else C["status_green"]),
         ]
-        lines = [" | ".join(headers), "-" * 120]
-        for row in self.analysis:
-            lines.append(" | ".join(value_to_text(row.get(header, "")) for header in headers))
-        _show_text_dialog(self, "Coordinator Slot Analysis", "\n".join(lines))
+        for title, value, color in card_data:
+            card = ctk.CTkFrame(cards_frame, fg_color=C["bg_card"], corner_radius=10)
+            card.pack(side="left", fill="both", expand=True, padx=6)
+            ctk.CTkLabel(
+                card, text=title, text_color=C["text_secondary"],
+                font=ctk.CTkFont(size=11),
+            ).pack(anchor="w", padx=14, pady=(10, 0))
+            ctk.CTkLabel(
+                card, text=value, text_color=color,
+                font=ctk.CTkFont(size=22, weight="bold"),
+            ).pack(anchor="w", padx=14, pady=(2, 10))
+
+        # ── Scrollable body ───────────────────────────────────────────────
+        body = ctk.CTkScrollableFrame(self.tab_analysis, fg_color=C["bg_dark"])
+        body.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+
+        # ── Section 1: Slots & Dues Table ─────────────────────────────────
+        section1 = ctk.CTkFrame(body, fg_color=C["bg_card"], corner_radius=10)
+        section1.pack(fill="x", pady=(0, 14))
+
+        ctk.CTkLabel(
+            section1, text="📋 Coordinator Slots & Financial Dues",
+            font=ctk.CTkFont(size=16, weight="bold"), text_color=C["text_primary"],
+        ).pack(anchor="w", padx=16, pady=(14, 8))
+
+        # Table header
+        col_defs = [
+            ("#", 40), ("Coordinator", 220), ("Main Slots", 90),
+            ("Backup Slots", 100), ("Total Slots", 90), ("Amount (EGP)", 120),
+        ]
+        header_row = ctk.CTkFrame(section1, fg_color=C["bg_input"], height=36, corner_radius=6)
+        header_row.pack(fill="x", padx=12, pady=(0, 2))
+        header_row.pack_propagate(False)
+        for col_name, col_width in col_defs:
+            ctk.CTkLabel(
+                header_row, text=col_name, width=col_width, anchor="w",
+                text_color=C["text_secondary"], font=ctk.CTkFont(size=12, weight="bold"),
+            ).pack(side="left", padx=6)
+
+        # Table rows
+        for i, entry in enumerate(self.strict_analysis):
+            row_color = C["bg_card"] if i % 2 == 0 else C["bg_dark"]
+            row_frame = ctk.CTkFrame(section1, fg_color=row_color, height=34, corner_radius=0)
+            row_frame.pack(fill="x", padx=12, pady=0)
+            row_frame.pack_propagate(False)
+            values = [
+                str(i + 1),
+                entry.get("Coordinator", ""),
+                str(entry.get("Main Slots", 0)),
+                str(entry.get("Backup Slots", 0)),
+                str(entry.get("Total Slots", 0)),
+                f"{entry.get('Amount (EGP)', 0):,.0f}",
+            ]
+            for (_, col_width), val in zip(col_defs, values):
+                ctk.CTkLabel(
+                    row_frame, text=val, width=col_width, anchor="w",
+                    text_color=C["text_primary"], font=ctk.CTkFont(size=12),
+                ).pack(side="left", padx=6)
+
+        # Grand total row
+        total_row = ctk.CTkFrame(section1, fg_color=C["accent_blue"], height=38, corner_radius=6)
+        total_row.pack(fill="x", padx=12, pady=(4, 12))
+        total_row.pack_propagate(False)
+        total_values = [
+            "", "GRAND TOTAL", "", "",
+            str(self.strict_totals.get("Total Slots", 0)),
+            f"{self.strict_totals.get('Total Amount (EGP)', 0):,.0f}",
+        ]
+        for (_, col_width), val in zip(col_defs, total_values):
+            ctk.CTkLabel(
+                total_row, text=val, width=col_width, anchor="w",
+                text_color="#ffffff", font=ctk.CTkFont(size=13, weight="bold"),
+            ).pack(side="left", padx=6)
+
+        # ── Section 2: Conflict Alerts ────────────────────────────────────
+        section2 = ctk.CTkFrame(body, fg_color=C["bg_card"], corner_radius=10)
+        section2.pack(fill="x", pady=(0, 14))
+
+        ctk.CTkLabel(
+            section2, text="🔍 Conflict Detection",
+            font=ctk.CTkFont(size=16, weight="bold"), text_color=C["text_primary"],
+        ).pack(anchor="w", padx=16, pady=(14, 8))
+
+        coordinator_conflicts = self.strict_conflicts.get("coordinator_conflicts", [])
+        room_conflicts_data = self.strict_conflicts.get("room_conflicts", [])
+
+        if not coordinator_conflicts and not room_conflicts_data:
+            no_conflict_frame = ctk.CTkFrame(section2, fg_color="#0d3320", corner_radius=8)
+            no_conflict_frame.pack(fill="x", padx=14, pady=(0, 14))
+            ctk.CTkLabel(
+                no_conflict_frame, text="✅ No conflicts detected — all assignments are clean!",
+                text_color=C["status_green"], font=ctk.CTkFont(size=14, weight="bold"),
+            ).pack(padx=16, pady=14)
+        else:
+            # Coordinator Conflicts
+            if coordinator_conflicts:
+                cc_header = ctk.CTkFrame(section2, fg_color="#3b1010", corner_radius=8)
+                cc_header.pack(fill="x", padx=14, pady=(0, 4))
+                ctk.CTkLabel(
+                    cc_header,
+                    text=f"🔴 Coordinator Conflicts ({len(coordinator_conflicts)})",
+                    text_color=C["danger"], font=ctk.CTkFont(size=14, weight="bold"),
+                ).pack(anchor="w", padx=14, pady=10)
+
+                for conflict in coordinator_conflicts:
+                    centers = ", ".join(conflict.get("Centers", []))
+                    alert_frame = ctk.CTkFrame(section2, fg_color=C["bg_input"], corner_radius=6)
+                    alert_frame.pack(fill="x", padx=20, pady=2)
+                    ctk.CTkLabel(
+                        alert_frame,
+                        text=(
+                            f"⚠️  {conflict.get('Coordinator', '')} is assigned to centers "
+                            f"[{centers}] on {conflict.get('Day', '')} at {conflict.get('Time', '')}"
+                        ),
+                        text_color=C["status_yellow"], font=ctk.CTkFont(size=12),
+                        wraplength=950, justify="left",
+                    ).pack(anchor="w", padx=12, pady=8)
+
+            # Room Conflicts
+            if room_conflicts_data:
+                spacer_pad = (12, 4) if coordinator_conflicts else (0, 4)
+                rc_header = ctk.CTkFrame(section2, fg_color="#3b2e10", corner_radius=8)
+                rc_header.pack(fill="x", padx=14, pady=spacer_pad)
+                ctk.CTkLabel(
+                    rc_header,
+                    text=f"🟡 Room Conflicts ({len(room_conflicts_data)})",
+                    text_color=C["status_yellow"], font=ctk.CTkFont(size=14, weight="bold"),
+                ).pack(anchor="w", padx=14, pady=10)
+
+                for conflict in room_conflicts_data:
+                    groups = ", ".join(conflict.get("Groups", []))
+                    alert_frame = ctk.CTkFrame(section2, fg_color=C["bg_input"], corner_radius=6)
+                    alert_frame.pack(fill="x", padx=20, pady=2)
+                    ctk.CTkLabel(
+                        alert_frame,
+                        text=(
+                            f"⚠️  Room {conflict.get('Room Code', '')} in Center "
+                            f"{conflict.get('Center Code', '')} has groups [{groups}] on "
+                            f"{conflict.get('Day', '')} at {conflict.get('Time', '')}"
+                        ),
+                        text_color=C["status_yellow"], font=ctk.CTkFont(size=12),
+                        wraplength=950, justify="left",
+                    ).pack(anchor="w", padx=12, pady=8)
+
+            # Bottom padding
+            ctk.CTkFrame(section2, fg_color="transparent", height=8).pack()
 
     def _show_log_dialog(self):
         if not self.log_rows:
@@ -1487,14 +1752,19 @@ class CoordinatorApp(ctk.CTk):
         self._search_after_id = self.after(200, self._render_table)
 
     def _export_messages_quick(self):
-        """Export messages + analysis + log xlsx files directly without a dialog."""
+        """Export messages + analysis + log xlsx files into a user-selected folder."""
         if not self.messages:
             messagebox.showinfo("No Messages", "Generate messages first by uploading files.", parent=self)
             return
+        
+        out_dir = filedialog.askdirectory(title="Select Folder to Save Exports", parent=self)
+        if not out_dir:
+            return
+
         try:
-            paths = save_outputs(self.messages, self.analysis, self.log_rows, self.output_dir)
+            paths = save_outputs(self.messages, self.analysis, self.log_rows, out_dir)
             self._update_status_color("success")
-            self.status_var.set(f"Exported \u2192 {os.path.basename(paths['messages'])}")
+            self.status_var.set(f"Exported \u2192 {os.path.basename(out_dir)}/")
         except Exception as exc:
             self._update_status_color("error")
             self.status_var.set(f"Export failed: {exc}")
@@ -1511,3 +1781,69 @@ class CoordinatorApp(ctk.CTk):
         except Exception as exc:
             self._update_status_color("error")
             self.status_var.set(f"Log export failed: {exc}")
+
+    def _show_report_export_dialog(self):
+        if not self.strict_analysis:
+            messagebox.showinfo("No Data", "No analysis data to export. Please upload files first.", parent=self)
+            return
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Export Analysis Report")
+        dlg.geometry("380x330")
+        dlg.configure(fg_color=C["bg_dark"])
+        dlg.transient(self)
+        dlg.grab_set()
+
+        content = ctk.CTkFrame(dlg, fg_color=C["bg_card"], corner_radius=8)
+        content.pack(fill="both", expand=True, padx=18, pady=18)
+
+        ctk.CTkLabel(content, text="Export Options", font=ctk.CTkFont(size=18, weight="bold"), text_color=C["text_primary"]).pack(anchor="w", padx=14, pady=(14, 10))
+
+        # Format
+        format_var = tk.StringVar(value="PDF")
+        ctk.CTkLabel(content, text="Format:", text_color=C["text_secondary"]).pack(anchor="w", padx=14, pady=(4, 2))
+        f_frame = ctk.CTkFrame(content, fg_color="transparent")
+        f_frame.pack(fill="x", padx=14, pady=(0, 10))
+        ctk.CTkRadioButton(f_frame, text="PDF Document", variable=format_var, value="PDF", text_color=C["text_primary"]).pack(side="left", padx=(0, 10))
+        ctk.CTkRadioButton(f_frame, text="Excel Workbook", variable=format_var, value="XLSX", text_color=C["text_primary"]).pack(side="left")
+
+        # Detail Level
+        detail_var = tk.StringVar(value="Detailed")
+        ctk.CTkLabel(content, text="Detail Level:", text_color=C["text_secondary"]).pack(anchor="w", padx=14, pady=(4, 2))
+        d_frame = ctk.CTkFrame(content, fg_color="transparent")
+        d_frame.pack(fill="x", padx=14, pady=(0, 16))
+        ctk.CTkRadioButton(d_frame, text="Detailed", variable=detail_var, value="Detailed", text_color=C["text_primary"]).pack(side="left", padx=(0, 10))
+        ctk.CTkRadioButton(d_frame, text="Brief", variable=detail_var, value="Brief", text_color=C["text_primary"]).pack(side="left")
+
+        def perform_export():
+            from datetime import datetime
+            fmt = format_var.get()
+            is_detailed = detail_var.get() == "Detailed"
+            
+            ext = ".pdf" if fmt == "PDF" else ".xlsx"
+            filetypes = [("PDF Document", "*.pdf")] if fmt == "PDF" else [("Excel Workbook", "*.xlsx")]
+            
+            filepath = filedialog.asksaveasfilename(
+                title="Save Analysis Report",
+                defaultextension=ext,
+                initialfile=f"Analysis_Report_{datetime.now().strftime('%Y%m%d')}{ext}",
+                filetypes=filetypes,
+                parent=dlg
+            )
+            if not filepath:
+                return
+
+            try:
+                if fmt == "PDF":
+                    generate_pdf_report(self.strict_analysis, self.strict_totals, self.strict_conflicts, is_detailed, filepath)
+                else:
+                    generate_xlsx_report(self.strict_analysis, self.strict_totals, self.strict_conflicts, is_detailed, filepath)
+                messagebox.showinfo("Export Success", f"Report saved successfully to:\n{filepath}", parent=dlg)
+                dlg.destroy()
+            except Exception as exc:
+                messagebox.showerror("Export Failed", f"Failed to generate report:\n{exc}", parent=dlg)
+
+        actions = ctk.CTkFrame(content, fg_color="transparent")
+        actions.pack(fill="x", padx=14, pady=(10, 14))
+        StyledButton(actions, text="Cancel", width=90, color=C["bg_input"], hover=C["hover"], command=dlg.destroy).pack(side="left")
+        StyledButton(actions, text="Export", width=120, color=C["accent_blue"], hover=C["accent_purple"], command=perform_export).pack(side="right")

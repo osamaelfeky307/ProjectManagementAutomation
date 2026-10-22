@@ -1,4 +1,4 @@
-# 🚀 Project Management Automation (PMA)
+# Project Management Automation (PMA)
 
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/GUI-CustomTkinter-blueviolet.svg)](https://github.com/TomSchimansky/CustomTkinter)
@@ -7,56 +7,56 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg?logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **A high-performance desktop application for automating WhatsApp communications, scheduling, conflict detection, and coordination across training centers, instructors, coordinators, and students.**
+> **A desktop application for automating WhatsApp communications, scheduling, conflict detection, and coordination across training centers, instructors, coordinators, and students.**
 
 ---
 
-## 📌 Overview
+## Overview
 
 **Project Management Automation (PMA)** is a modular desktop software application built with Python and **CustomTkinter**. Designed originally to streamline large-scale educational operations (such as **eYouth** training programs), it automates end-to-end communication pipelines via WhatsApp Web:
 
 - **Instructor Session Operations:** Automated schedule-based reminders and session status tracking.
-- **Coordinator Management:** Smart slot analysis, wage calculation, and assignment conflict detection with bilingual messaging (Arabic & English).
+- **Coordinator Management:** Smart slot analysis, wage calculation, and assignment conflict detection with bilingual messaging (Arabic and English).
 - **Student Group Invites:** Automated onboarding with personalized WhatsApp group invite links, progress tracking, and batch throttling.
 - **Anti-Ban Architecture:** Humanized pacing, randomized delay intervals, and configurable daily limits to safeguard WhatsApp accounts.
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 1. 🎓 Instructor Scheduling & Dispatch
+### 1. Instructor Scheduling & Dispatch
 - **Automated Triggers:** Sends reminders scheduled around session times:
-  - 📅 **Day-Before Reminder** (`-24h`)
-  - ⏰ **Pre-Session Alert** (`-15m`)
-  - 🚪 **Waiting Room & Attendance Checks**
-  - 🙏 **Post-Session Wrap-Up & Feedback**
+  - **Day-Before Reminder** (`-24h`)
+  - **Pre-Session Alert** (`-15m`)
+  - **Waiting Room & Attendance Checks**
+  - **Post-Session Wrap-Up & Feedback**
 - **Dynamic Template Engine:** Personalizes messages using placeholders (`{name}`, `{group_code}`, `{time}`, etc.).
 - **Live Status Tracking:** Visual indicators (`Not Sent`, `Sending`, `Sent`, `Failed`, `Acknowledged`, `Confirmed`).
 
-### 2. 🗂️ Coordinator Workflow & Conflict Detection
+### 2. Coordinator Workflow & Conflict Detection
 - **Smart Column Auto-Detection:** Intelligently maps Excel header variations via canonical aliasing.
 - **Assignment Conflict Detection:** Automatically flags coordinators scheduled for overlapping days and time slots.
 - **Financial & Slot Analytics:** Calculates per-coordinator slot counts and estimated earnings.
 - **Bilingual Arabic Messages:** Formats clear schedule summaries with Arabic weekday mapping and center details.
 
-### 3. 👥 Student Group Invites
+### 3. Student Group Invites
 - **Automated Invitations:** Bulk-dispatches customized group links to students.
 - **Resume & Persistence:** Saves progress to JSON (`group_invite_progress.json`) to safely resume paused or multi-day runs.
 - **Daily Batch Quotas:** Enforces daily sending quotas to prevent spam detection.
 
-### 4. 🛡️ Robust Anti-Ban & Human Simulation
+### 4. Robust Anti-Ban & Human Simulation
 - **Randomized Delays:** Simulates realistic typing and human pacing (20–40s for coordinators, 45–90s for students).
 - **Phone Number Normalization:** Automatically standardizes international and Egyptian formats (`010...`, `+2010...`) into clean **E.164**.
 
-### 5. 🎨 Modern Dark-Themed GUI
-- Sleek CustomTkinter interface with smooth navigation.
+### 5. Modern Dark-Themed GUI
+- Clean CustomTkinter interface with smooth navigation.
 - **Interactive Tour Guide:** Built-in onboarding walkthrough for first-time users.
 - Live console and status dots for transparency during active runs.
 - Standalone executable support via **PyInstaller**.
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ```mermaid
 graph TD
@@ -81,43 +81,43 @@ graph TD
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```text
 ProjectManagementAutomation/
 │
-├── main.py                     # 🚀 Main entry point & Instructor dashboard
-├── app_config.py               # 🎨 UI themes, color palettes, and global configs
-├── engine.py                   # 📨 MessageEngine (WhatsApp Web driver, batching, delays)
-├── schedule_manager.py         # ⏰ ScheduleMixin for timed automated triggers
-├── ui_components.py            # 🧩 Custom reusable UI widgets (StatusDot, StyledButtons)
+├── main.py                     # Main entry point & Instructor dashboard
+├── app_config.py               # UI themes, color palettes, and global configs
+├── engine.py                   # MessageEngine (WhatsApp Web driver, batching, delays)
+├── schedule_manager.py         # ScheduleMixin for timed automated triggers
+├── ui_components.py            # Custom reusable UI widgets (StatusDot, StyledButtons)
 │
-├── coordinator_ui.py           # 🗂️ Coordinator workflow interface & dialogs
-├── coordinator_logic.py        # ⚙️ Coordinator message generation & conflict detection
-├── coordinator_parser.py       # 📑 Smart Excel/CSV reader with column alias auto-detection
+├── coordinator_ui.py           # Coordinator workflow interface & dialogs
+├── coordinator_logic.py        # Coordinator message generation & conflict detection
+├── coordinator_parser.py       # Smart Excel/CSV reader with column alias auto-detection
 │
-├── group_invite_ui.py          # 👥 Student group invite GUI
-├── group_invite_logic.py       # 🎯 Group invite queue, batching, and progress persistence
-├── centers_ui.py               # 🏢 Training centers management interface
-├── centers_logic.py            # 🏢 Center directory and room assignment logic
+├── group_invite_ui.py          # Student group invite GUI
+├── group_invite_logic.py       # Group invite queue, batching, and progress persistence
+├── centers_ui.py               # Training centers management interface
+├── centers_logic.py            # Center directory and room assignment logic
 │
-├── template_utils.py           # 📝 Template parsing, placeholder substitution, gender styling
-├── report_generator.py         # 📊 PDF/Excel export utility
-├── db_manager.py               # 💾 SQLite persistence manager
+├── template_utils.py           # Template parsing, placeholder substitution, gender styling
+├── report_generator.py         # PDF/Excel export utility
+├── db_manager.py               # SQLite persistence manager
 │
-├── templates.json              # 💬 Instructor message templates
-├── coordinator_templates.json  # 💬 Coordinator Arabic message templates
-├── group_invite_templates.json # 💬 Student invite templates
-├── triggers.json               # ⏱️ Schedule trigger definitions
-├── schedules.json              # 📆 Cached schedule data
+├── templates.json              # Instructor message templates
+├── coordinator_templates.json  # Coordinator Arabic message templates
+├── group_invite_templates.json # Student invite templates
+├── triggers.json               # Schedule trigger definitions
+├── schedules.json              # Cached schedule data
 │
-├── requirements.txt            # 📦 Python dependencies
-└── main.spec                   # 🏗️ PyInstaller packaging specification
+├── requirements.txt            # Python dependencies
+└── main.spec                   # PyInstaller packaging specification
 ```
 
 ---
 
-## ⚙️ Installation & Setup
+## Installation & Setup
 
 ### Prerequisites
 - Python **3.10** or higher
@@ -144,7 +144,7 @@ pip install pyautogui
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ### Running the Application
 ```bash
@@ -161,7 +161,7 @@ python main.py
 
 ---
 
-## 📊 Excel Template Structure
+## Excel Template Structure
 
 The parser supports flexible column naming, recognizing aliases automatically:
 
@@ -175,7 +175,7 @@ The parser supports flexible column naming, recognizing aliases automatically:
 
 ---
 
-## 📦 Building Standalone Executable
+## Building Standalone Executable
 
 To compile into a standalone `.exe` using PyInstaller:
 
@@ -187,14 +187,14 @@ The compiled binary will be generated in the `dist/` directory.
 
 ---
 
-## 🔒 Security & Privacy Notice
+## Security & Privacy Notice
 
 - **Local Storage:** All contacts, schedules, and configuration files are stored locally on your machine.
 - **WhatsApp Terms of Service:** Always adhere to WhatsApp's Terms of Service. Use moderate delay settings and obtain consent from recipients to minimize account risk.
 
 ---
 
-## 👤 Author
+## Author
 
 **Osama Elfeky**
 - GitHub: [@osamaelfeky307](https://github.com/osamaelfeky307)
@@ -202,6 +202,6 @@ The compiled binary will be generated in the `dist/` directory.
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).

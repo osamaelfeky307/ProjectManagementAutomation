@@ -18,7 +18,7 @@ class PDFReport(FPDF):
 
     def header(self):
         self.set_font(self.df, 'B', 15)
-        self.cell(0, 10, 'DECI Automation - Analysis Report', border=False, align='C')
+        self.cell(0, 10, 'PM Automation - Analysis Report', border=False, align='C')
         self.ln(20)
 
     def footer(self):
@@ -136,7 +136,7 @@ def generate_xlsx_report(analysis, totals, conflicts, is_detailed, filepath):
     row_num = 1
     
     # Header
-    ws.cell(row=row_num, column=1, value="DECI Automation - Analysis Report").font = header_font
+    ws.cell(row=row_num, column=1, value="PM Automation - Analysis Report").font = header_font
     ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=6)
     row_num += 2
     

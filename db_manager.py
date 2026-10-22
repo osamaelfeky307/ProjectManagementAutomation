@@ -29,6 +29,23 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS centers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            center_name TEXT NOT NULL,
+            governorate TEXT,
+            city TEXT,
+            area TEXT,
+            address TEXT,
+            poc TEXT,
+            telephone TEXT,
+            groups_count INTEGER DEFAULT NULL,
+            rooms_count INTEGER DEFAULT NULL,
+            confirmed INTEGER DEFAULT 0,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -180,6 +197,138 @@ def clear_temporary_sessions():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM sessions WHERE target_date = 'Temporary'")
+    deleted = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+
+# ─────────────────────────────── Centers CRUD ────────────────────────────────
+
+def insert_center(center_name, governorate="", city="", area="", address="",
+                  poc="", telephone=""):
+    """Insert a single center and return its new id."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO centers (center_name, governorate, city, area, address, poc, telephone)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (center_name, governorate, city, area, address, poc, telephone))
+    new_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id
+
+
+def insert_centers_bulk(centers_list):
+    """
+    Insert multiple centers at once.
+    centers_list: list of dicts with keys matching the centers columns.
+    Skips rows where (center_name, telephone) already exists.
+    Returns (inserted_count, skipped_count).
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    inserted = 0
+    skipped = 0
+    for c in centers_list:
+        name = c.get("center_name", "").strip()
+        tel  = c.get("telephone", "").strip()
+        # Duplicate check by (center_name, telephone)
+        cursor.execute(
+            "SELECT id FROM centers WHERE center_name=? AND telephone=?",
+            (name, tel)
+        )
+        if cursor.fetchone():
+            skipped += 1
+            continue
+        cursor.execute("""
+            INSERT INTO centers (center_name, governorate, city, area, address, poc, telephone)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            name,
+            c.get("governorate", ""),
+            c.get("city", ""),
+            c.get("area", ""),
+            c.get("address", ""),
+            c.get("poc", ""),
+            tel,
+        ))
+        inserted += 1
+    conn.commit()
+    conn.close()
+    return inserted, skipped
+
+
+def get_all_centers():
+    """Return all centers as a list of dicts."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM centers ORDER BY center_name")
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "id": r["id"],
+            "center_name": r["center_name"],
+            "governorate": r["governorate"] or "",
+            "city": r["city"] or "",
+            "area": r["area"] or "",
+            "address": r["address"] or "",
+            "poc": r["poc"] or "",
+            "telephone": r["telephone"] or "",
+            "groups_count": r["groups_count"],
+            "rooms_count": r["rooms_count"],
+            "confirmed": bool(r["confirmed"]),
+            "notes": r["notes"] or "",
+        }
+        for r in rows
+    ]
+
+
+def update_center_details(center_id, center_name, governorate, city, area,
+                          address, poc, telephone):
+    """Update the basic info fields of a center."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE centers
+        SET center_name=?, governorate=?, city=?, area=?, address=?, poc=?, telephone=?
+        WHERE id=?
+    """, (center_name, governorate, city, area, address, poc, telephone, center_id))
+    conn.commit()
+    conn.close()
+
+
+def update_center_confirmation(center_id, groups_count, rooms_count, confirmed, notes):
+    """Save POC-confirmed data (groups, rooms, confirmation status, notes)."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE centers
+        SET groups_count=?, rooms_count=?, confirmed=?, notes=?
+        WHERE id=?
+    """, (groups_count, rooms_count, 1 if confirmed else 0, notes, center_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_center(center_id):
+    """Delete a center by id."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM centers WHERE id=?", (center_id,))
+    conn.commit()
+    conn.close()
+
+
+def clear_all_centers():
+    """Delete every row from the centers table."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM centers")
     deleted = cursor.rowcount
     conn.commit()
     conn.close()

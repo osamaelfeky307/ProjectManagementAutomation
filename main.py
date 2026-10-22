@@ -1,12 +1,15 @@
-"""DECI Automation — EYouth coordination WhatsApp Messenger."""
+"""Project Management Automation — EYouth coordination WhatsApp Messenger."""
 import customtkinter as ctk
 import openpyxl, os, random, datetime, threading, tkinter as tk, winsound
 from tkinter import filedialog, messagebox
 from app_config import COLORS as C, load_templates, save_templates
-from ui_components import StatusDot, StyledButton, SidebarButton, StyledEntry, StyledTextbox, StyledOptionMenu, CardFrame
+from ui_components import StatusDot, StyledButton, SidebarButton, StyledEntry, StyledTextbox, StyledOptionMenu, CardFrame, play_sound
 from engine import MessageEngine
 from schedule_manager import ScheduleMixin
 from coordinator_ui import CoordinatorApp
+from centers_ui import CentersApp
+from group_invite_ui import GroupInviteApp
+from file_errors import FileUploadError
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -207,7 +210,7 @@ class TourGuide(ctk.CTkToplevel):
 class App(ctk.CTk, ScheduleMixin):
     def __init__(self):
         super().__init__()
-        self.title("DECI Automation — EYouth coordination")
+        self.title("Project Management Automation")
         self.geometry("1280x780")
         self.minsize(1100, 650)
         self.configure(fg_color=C["bg_dark"])
@@ -333,14 +336,14 @@ class App(ctk.CTk, ScheduleMixin):
 
         self.logo_title = ctk.CTkLabel(
             self.logo_inner,
-            text="WhatsApp Automation",
+            text="PM Automation",
             font=ctk.CTkFont(size=21, weight="bold")
         )
         self.logo_title.pack()
 
         self.logo_subtitle = ctk.CTkLabel(
             self.logo_inner,
-            text="Coordination by Osama Elfeky",
+            text="Project Management by Osama Elfeky",
             font=ctk.CTkFont(size=12),
             text_color=C["text_secondary"]
         )
@@ -477,7 +480,8 @@ class App(ctk.CTk, ScheduleMixin):
             data = {"name": "Ahmed Ali", "group_code": "G-102", "time": "02:00 PM", "day": "Friday"}
 
         full_name = data.get("name", "")
-        first_name = full_name.split()[0] if full_name else ""
+        from template_utils import render_template, get_first_name
+        first_name = get_first_name(full_name)
         
         context = {
             "name": first_name,
@@ -486,7 +490,6 @@ class App(ctk.CTk, ScheduleMixin):
             "time": data.get("time", ""),
             "day": data.get("day", ""),
         }
-        from template_utils import render_template
         text = render_template(text, context, gender=data.get("gender", ""))
         
         self.preview_box.configure(state="normal")
@@ -580,6 +583,8 @@ class App(ctk.CTk, ScheduleMixin):
                      command=self._stop_sending).pack(side="right", padx=(4, 16), pady=6)
         StyledButton(ab2, text="🗑 Delete", color=C["danger"], hover="#991b1b", width=70,
                      command=self._delete_selected).pack(side="right", padx=4, pady=6)
+        self.retry_btn = StyledButton(ab2, text="⟳ Retry Failed", color=C["status_yellow"], hover="#b45309", width=120, command=self._retry_failed, state="disabled")
+        self.retry_btn.pack(side="right", padx=4, pady=6)
         StyledButton(ab2, text="🚀 Send Selected", width=120, command=self._send_selected
                      ).pack(side="right", padx=4, pady=6)
         
@@ -813,27 +818,126 @@ class App(ctk.CTk, ScheduleMixin):
         path = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")])
         if not path:
             return
+        filename = os.path.basename(path)
+
+        # --- File read ---
         try:
             wb = openpyxl.load_workbook(path)
-            ws = wb.active
-            new_rows = []
-            for r in ws.iter_rows(min_row=2, values_only=True):
-                if not r[0]:
-                    continue
-                new_rows.append({
-                    "name": str(r[0] or ""),
-                    "phone": normalize_phone(r[1]),
-                    "group_code": str(r[2] or ""),
-                    "day": str(r[3] or "Friday").strip().title(),
-                    "time": str(r[4] or ""),
-                    "status": STATUS_NOT_SENT,
-                    "selected": False,
-                    "visible": True,
-                })
-            
-            self._import_with_dedup(new_rows, source_label="Excel Import")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+        except Exception as exc:
+            messagebox.showerror(
+                "File Read Error",
+                f"Could not read '{filename}'.\n\n{exc}\n\n"
+                "• Make sure the file is not open in another program (e.g. Excel).\n"
+                "• Verify it is a valid .xlsx file.\n"
+                "• If it is password-protected, remove the password first.",
+            )
+            return
+
+        ws = wb.active
+        all_rows = list(ws.iter_rows(min_row=1, values_only=True))
+
+        # --- Empty file ---
+        if not all_rows:
+            messagebox.showerror(
+                "Empty File",
+                f"The file '{filename}' appears to be empty.\n\n"
+                "• Make sure row 1 has column headers (Name, Phone, Group Code, Day, Time).\n"
+                "• Data should start from row 2.",
+            )
+            return
+
+        headers = all_rows[0]
+        data_rows = all_rows[1:]
+
+        # --- Check minimum columns ---
+        if len(headers) < 5:
+            messagebox.showerror(
+                "Missing Columns",
+                f"The file '{filename}' has only {len(headers)} column(s).\n\n"
+                "Expected at least 5 columns in this order:\n"
+                "  A: Name\n  B: Phone\n  C: Group Code\n  D: Day\n  E: Time\n\n"
+                "Please check your file structure and try again.",
+            )
+            return
+
+        # --- No data rows ---
+        if not data_rows:
+            messagebox.showerror(
+                "No Data Rows",
+                f"The file '{filename}' has headers but no data rows.\n\n"
+                "Data should start from row 2.",
+            )
+            return
+
+        # --- Parse rows with per-row validation ---
+        new_rows = []
+        warnings = []
+        empty_name_count = 0
+        invalid_phone_count = 0
+
+        for row_num, r in enumerate(data_rows, start=2):
+            # Skip completely empty rows
+            if not r[0]:
+                empty_name_count += 1
+                continue
+
+            name = str(r[0] or "").strip()
+            raw_phone = str(r[1] or "").strip() if len(r) > 1 else ""
+            phone = normalize_phone(raw_phone)
+
+            # Track phone validation issues
+            if raw_phone and not phone:
+                invalid_phone_count += 1
+                warnings.append(
+                    f"Row {row_num}: {name} — phone '{raw_phone}' could not be "
+                    f"normalized to a valid Egyptian number"
+                )
+                phone = raw_phone  # keep raw value so user can see/fix it
+            elif not raw_phone:
+                invalid_phone_count += 1
+                warnings.append(f"Row {row_num}: {name} — phone number is missing")
+
+            new_rows.append({
+                "name": name,
+                "phone": phone,
+                "group_code": str(r[2] or "") if len(r) > 2 else "",
+                "day": str(r[3] or "Friday").strip().title() if len(r) > 3 else "Friday",
+                "time": str(r[4] or "") if len(r) > 4 else "",
+                "status": STATUS_NOT_SENT,
+                "selected": False,
+                "visible": True,
+            })
+
+        if not new_rows:
+            messagebox.showerror(
+                "No Valid Rows",
+                f"The file '{filename}' has {len(data_rows)} data row(s) but none "
+                f"contain a name in column A.\n\n"
+                "Make sure column A contains instructor names.",
+            )
+            return
+
+        self._import_with_dedup(new_rows, source_label="Excel Import")
+
+        # --- Post-import summary with warnings ---
+        if warnings:
+            summary_lines = warnings[:15]
+            if len(warnings) > 15:
+                summary_lines.append(f"… and {len(warnings) - 15} more")
+            messagebox.showwarning(
+                "Import Warnings",
+                f"Imported {len(new_rows)} rows from '{filename}' with "
+                f"{invalid_phone_count} phone number issue(s).\n\n"
+                + "\n".join(summary_lines)
+                + "\n\nRows with invalid phones were imported with their raw values. "
+                "You can edit them in the table.",
+            )
+        else:
+            messagebox.showinfo(
+                "Import Successful ✅",
+                f"Successfully imported {len(new_rows)} rows from '{filename}'.\n\n"
+                "All phone numbers were validated successfully.",
+            )
 
     # ── Table rendering ──────────────────────────────────────
     def _render_table(self):
@@ -1332,9 +1436,16 @@ class App(ctk.CTk, ScheduleMixin):
         total = len(self.rows)
         sent = sum(1 for r in self.rows if r["status"] in (STATUS_SENT, STATUS_ACK, STATUS_CONF))
         conf = sum(1 for r in self.rows if r["status"] == STATUS_CONF)
+        failed = sum(1 for r in self.rows if r["status"] == STATUS_FAILED)
         pending = total - sent
         self.stats_label.configure(
             text=f"Total: {total}  |  Sent: {sent}  |  Confirmed: {conf}  |  Pending: {pending}")
+            
+        if hasattr(self, "retry_btn"):
+            if failed > 0:
+                self.retry_btn.configure(state="normal")
+            else:
+                self.retry_btn.configure(state="disabled")
 
     # ── Sending ──────────────────────────────────────────────
     def _get_template_text(self):
@@ -1354,6 +1465,17 @@ class App(ctk.CTk, ScheduleMixin):
         if not targets:
             messagebox.showinfo("Done", "All visible messages already sent.")
             return
+        self._do_send(targets)
+
+    def _retry_failed(self):
+        targets = [{"row_index": i, **r} for i, r in enumerate(self.rows)
+                    if r["visible"] and r["status"] == STATUS_FAILED]
+        if not targets:
+            return
+            
+        for t in targets:
+            self._set_status(t["row_index"], STATUS_NOT_SENT)
+            
         self._do_send(targets)
 
     def _do_send(self, targets, tpl=None, slot_name=None, schedule_id=None):
@@ -1412,6 +1534,9 @@ class App(ctk.CTk, ScheduleMixin):
         progress_label = ctk.CTkLabel(progress_dlg, text=f"0 / {len(targets)} sent", text_color=C["text_secondary"], font=ctk.CTkFont(size=12))
         progress_label.pack()
 
+        eta_label = ctk.CTkLabel(progress_dlg, text="ETA: Calculating...", text_color=C["text_secondary"], font=ctk.CTkFont(size=12))
+        eta_label.pack(pady=(2, 0))
+
         # Countdown timer label — shows the delay between messages
         countdown_label = ctk.CTkLabel(progress_dlg, text="", text_color=C["accent_cyan"], font=ctk.CTkFont(size=13, weight="bold"))
         countdown_label.pack(pady=(6, 0))
@@ -1424,15 +1549,37 @@ class App(ctk.CTk, ScheduleMixin):
         self._send_stop_btn = StyledButton(progress_dlg, text="⛔ Stop", color=C["danger"], hover="#991b1b", command=stop_sending, width=100)
         self._send_stop_btn.pack(pady=(12, 0))
 
-        progress_state = {"count": 0, "total": len(targets)}
+        import time
+        progress_state = {"count": 0, "total": len(targets), "start_time": time.time()}
 
         def on_prog(idx, ok, detail):
+            try:
+                if ok:
+                    play_sound("success")
+                else:
+                    play_sound("error")
+            except Exception:
+                pass
+                
             self.after(0, lambda: self._set_status(idx, STATUS_SENT if ok else STATUS_FAILED, detail))
             def update_ui():
                 progress_state["count"] += 1
                 if progress_dlg.winfo_exists():
                     progress_bar.set(progress_state["count"] / progress_state["total"])
                     progress_label.configure(text=f"{progress_state['count']} / {progress_state['total']} sent")
+                    
+                    elapsed = time.time() - progress_state["start_time"]
+                    avg_time = elapsed / progress_state["count"]
+                    remaining = progress_state["total"] - progress_state["count"]
+                    eta_secs = int(remaining * avg_time)
+                    
+                    if remaining > 0:
+                        m, s = divmod(eta_secs, 60)
+                        eta_str = f"ETA: ~{m}m {s}s remaining" if m > 0 else f"ETA: ~{s}s remaining"
+                        eta_label.configure(text=eta_str)
+                    else:
+                        eta_label.configure(text="ETA: Done")
+                        
                     # Clear countdown when a message just finished sending
                     countdown_label.configure(text="")
             self.after(0, update_ui)
@@ -1496,11 +1643,13 @@ class App(ctk.CTk, ScheduleMixin):
                         title = "Batch Complete!"
                         detail = f"All {sent_ok} messages were sent successfully."
                         title_color = C["status_green"]
+                        sound_flag = "batch_success"
                     else:
                         icon = "⚠️"
                         title = "Batch Finished"
                         detail = f"{sent_ok} of {len(targets)} sent successfully.\n{failed} message(s) failed."
                         title_color = C["status_yellow"]
+                        sound_flag = "batch_warn"
 
                     ctk.CTkLabel(progress_dlg, text=icon, font=ctk.CTkFont(size=48)).pack(pady=(25, 5))
                     ctk.CTkLabel(progress_dlg, text=title, font=ctk.CTkFont(size=20, weight="bold"), text_color=title_color).pack(pady=(0, 8))
@@ -1512,7 +1661,7 @@ class App(ctk.CTk, ScheduleMixin):
 
                     # Play notification sound
                     try:
-                        winsound.MessageBeep(winsound.MB_ICONASTERISK)
+                        play_sound(sound_flag)
                     except Exception:
                         pass
 
@@ -1682,6 +1831,25 @@ class App(ctk.CTk, ScheduleMixin):
     def _import_with_dedup(self, new_rows: list, source_label: str = "Import"):
         if not new_rows: return
         
+        seen_phones = {}
+        duplicates = []
+        for r in new_rows:
+            p = r.get("phone")
+            if not p: continue
+            if p in seen_phones:
+                duplicates.append(f"{r.get('name')} ({p})")
+            else:
+                seen_phones[p] = r.get('name')
+                
+        if duplicates:
+            msg = f"Found {len(duplicates)} duplicate phone numbers in the imported file:\n\n"
+            msg += "\n".join(duplicates[:10])
+            if len(duplicates) > 10:
+                msg += f"\n... and {len(duplicates) - 10} more."
+            msg += "\n\nDo you want to continue importing these duplicates?"
+            if not messagebox.askyesno("Duplicate Phones Detected", msg):
+                return
+                
         # Ask to save for later
         save_for_later = messagebox.askyesno("Save Sessions", f"{source_label} loaded {len(new_rows)} rows.\n\nDo you want to save these sessions in the database for later?\n(If No, they will be deleted when you close the app)")
         
@@ -1708,27 +1876,45 @@ class App(ctk.CTk, ScheduleMixin):
     def _notify_batch_complete(self, total: int, sent_ok: int, slot: str):
         """Fire a desktop notification summarising the completed batch."""
         failed = total - sent_ok
-        title = "DECI Automation — Batch Complete ✅"
+        title = "PM Automation — Batch Complete"
 
         if failed == 0:
-            msg = f"All {total} messages sent successfully.\nSlot: {slot}"
+            msg = f"All {total} messages sent successfully. Slot: {slot}"
         else:
-            msg = (
-                f"{sent_ok}/{total} messages sent.\n"
-                f"{failed} failed — check the queue for details.\n"
-                f"Slot: {slot}"
-            )
+            msg = f"{sent_ok}/{total} messages sent. {failed} failed. Slot: {slot}"
 
-        try:
-            from plyer import notification
-            notification.notify(
-                title=title,
-                message=msg,
-                app_name="DECI Automation",
-                timeout=8,
-            )
-        except Exception:
-            print(f"[DECI] Batch done: {msg}")
+        def run_toast():
+            try:
+                # Try win10toast or plyer first
+                try:
+                    from plyer import notification
+                    notification.notify(
+                        title=title,
+                        message=msg,
+                        app_name="PM Automation",
+                        timeout=8,
+                    )
+                    return
+                except ImportError:
+                    pass
+                    
+                # Fallback to pure powershell toast
+                import subprocess
+                ps_script = f"""
+                [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+                [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+                [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+                $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+                $xml.LoadXml("<toast><visual><binding template='ToastText02'><text id='1'>{title}</text><text id='2'>{msg}</text></binding></visual></toast>")
+                $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+                [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("PM Automation").Show($toast)
+                """
+                subprocess.run(["powershell", "-Command", ps_script], creationflags=subprocess.CREATE_NO_WINDOW)
+            except Exception:
+                pass
+                
+        threading.Thread(target=run_toast, daemon=True).start()
+        print(f"[DECI] Batch done: {msg}")
 
     def _start_app_tour(self):
         def select_dummy_for_preview():
@@ -1779,8 +1965,8 @@ class App(ctk.CTk, ScheduleMixin):
 class LauncherApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("DECI Automation - Welcome")
-        self.geometry("700x450")
+        self.title("PM Automation - Welcome")
+        self.geometry("1360x480")
         self.resizable(False, False)
         self.configure(fg_color=C["bg_dark"])
 
@@ -1797,7 +1983,7 @@ class LauncherApp(ctk.CTk):
 
         main_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_frame.grid(row=0, column=0, sticky="nsew", padx=40, pady=40)
-        main_frame.grid_columnconfigure((0, 1), weight=1)
+        main_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
         main_frame.grid_rowconfigure(1, weight=1)
 
         title = ctk.CTkLabel(main_frame, text="Select Your Mission", 
@@ -1843,6 +2029,44 @@ class LauncherApp(ctk.CTk):
         coord_btn = StyledButton(coordinator_card, text="Launch Mode", command=self.launch_coordinators)
         coord_btn.grid(row=2, column=0, pady=(0, 40), padx=40, sticky="ew")
 
+        # Centers Card
+        centers_card = CardFrame(main_frame)
+        centers_card.grid(row=1, column=2, padx=(20, 0), sticky="nsew")
+        centers_card.grid_columnconfigure(0, weight=1)
+        centers_card.grid_rowconfigure(0, weight=1)
+        centers_card.grid_rowconfigure(1, weight=0)
+        centers_card.grid_rowconfigure(2, weight=0)
+
+        centers_icon = ctk.CTkLabel(centers_card, text="🏢", font=ctk.CTkFont(size=60))
+        centers_icon.grid(row=0, column=0, pady=(40, 10))
+
+        centers_title = ctk.CTkLabel(centers_card, text="Centers Management",
+                                     font=ctk.CTkFont(family="Inter", size=18, weight="bold"),
+                                     text_color=C["text_primary"])
+        centers_title.grid(row=1, column=0, pady=(0, 10))
+
+        centers_btn = StyledButton(centers_card, text="Launch Mode", command=self.launch_centers)
+        centers_btn.grid(row=2, column=0, pady=(0, 40), padx=40, sticky="ew")
+
+        # Group Invite Card
+        invite_card = CardFrame(main_frame)
+        invite_card.grid(row=1, column=3, padx=(20, 0), sticky="nsew")
+        invite_card.grid_columnconfigure(0, weight=1)
+        invite_card.grid_rowconfigure(0, weight=1)
+        invite_card.grid_rowconfigure(1, weight=0)
+        invite_card.grid_rowconfigure(2, weight=0)
+
+        invite_icon = ctk.CTkLabel(invite_card, text="📩", font=ctk.CTkFont(size=60))
+        invite_icon.grid(row=0, column=0, pady=(40, 10))
+
+        invite_title = ctk.CTkLabel(invite_card, text="Group Invite Sender",
+                                     font=ctk.CTkFont(family="Inter", size=18, weight="bold"),
+                                     text_color=C["text_primary"])
+        invite_title.grid(row=1, column=0, pady=(0, 10))
+
+        invite_btn = StyledButton(invite_card, text="Launch Mode", command=self.launch_group_invite)
+        invite_btn.grid(row=2, column=0, pady=(0, 40), padx=40, sticky="ew")
+
     def launch_instructors(self):
         self.destroy()
         app = App()
@@ -1851,6 +2075,16 @@ class LauncherApp(ctk.CTk):
     def launch_coordinators(self):
         self.destroy()
         app = CoordinatorApp()
+        app.mainloop()
+
+    def launch_centers(self):
+        self.destroy()
+        app = CentersApp()
+        app.mainloop()
+
+    def launch_group_invite(self):
+        self.destroy()
+        app = GroupInviteApp()
         app.mainloop()
 
 

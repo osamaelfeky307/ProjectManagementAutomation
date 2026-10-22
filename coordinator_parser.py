@@ -9,15 +9,15 @@ from file_errors import (
 )
 
 CANONICAL_COLUMNS = {
-    "group_code": {"groupcode", "group", "groupid"},
+    "group_code": {"groupcode", "group", "groupid", "rowlabels"},
     "center_code": {"centercode", "centercodeid"},
     "room_code": {"roomcode", "room", "roomid"},
-    "area": {"area", "region", "zone"},
+    "area": {"area", "region", "zone", "centerarea"},
     "city": {"city", "governorate", "governate"},
     "center_name": {"centername", "center", "venue", "venuename", "location"},
     "day": {"day", "sessionday"},
     "time": {"time", "sessiontime", "starttime"},
-    "main_coordinator": {"maincoordinator", "coordinator", "main", "mainname"},
+    "main_coordinator": {"maincoordinator", "coordinator", "main", "mainname", "coordinatorname"},
     "main_phone": {"phonenumber", "phone", "mainphone", "mainphonenumber", "coordinatorphone"},
     "main_code": {"code", "maincode", "coordinatorcode"},
     "backup_coordinator": {"backupcoordinator", "backup", "backupname"},
@@ -33,6 +33,21 @@ COORDINATOR_DIRECTORY_COLUMNS = {
     "phone": {"phonenumber", "phone", "mobile", "mobilenumber", "whatsapp", "whatsappnumber", "رقمالهاتف", "رقمالموبايل", "الموبايل", "الهاتف"},
     "gender": {"gender", "sex", "type", "malefemale", "النوع", "الجنس"},
 }
+
+# ---------------------------------------------------------------------------
+# Pivot-table format support: days spread as column pairs ({Day} Code / {Day} Name)
+# ---------------------------------------------------------------------------
+PIVOT_DAY_PREFIXES = {
+    "sat": "Saturday",
+    "sun": "Sunday",
+    "mon": "Monday",
+    "tue": "Tuesday",
+    "wed": "Wednesday",
+    "thu": "Thursday",
+    "fri": "Friday",
+}
+# Minimum number of day-column pairs required to consider it a pivot format
+_MIN_PIVOT_DAYS = 2
 
 def load_data(file_path: str, coordinator_file_path: str | None = None) -> dict:
     """Read the sessions file and optionally merge a separate coordinator phone directory."""
@@ -145,9 +160,36 @@ def load_coordinator_directory(file_path: str) -> dict:
     return directory
 
 def validate_columns(data: dict) -> list[dict]:
-    """Map supported column-name variations into the canonical coordinator schema."""
+    """Map supported column-name variations into the canonical coordinator schema.
+
+    Supports two formats:
+    1. Standard row-per-session format (each row has a Day column).
+    2. Pivot-table format where days are spread as column pairs
+       (e.g. "Sat Code", "Sat Name", "Sun Code", "Sun Name", ...).
+       Detected automatically and unpivoted before processing.
+    """
     headers = data["headers"]
     coordinator_directory = data.get("coordinator_directory", {})
+
+    # --- Pivot-table auto-detection ---
+    pivot_info = _detect_pivot_format(headers)
+    if pivot_info is not None:
+        column_map = _build_column_map(headers)
+        canonical_rows = _unpivot_rows(headers, data["rows"], pivot_info, column_map)
+        # Enrich unpivoted rows with coordinator directory data
+        for row in canonical_rows:
+            main_directory_entry = coordinator_directory.get(_person_key(row["main_coordinator"]), "")
+            if not clean_phone_number(row["main_phone"]):
+                row["main_phone"] = _directory_phone(main_directory_entry) or row["main_phone"]
+            row["main_gender"] = _directory_gender(main_directory_entry)
+            row["area"] = row["area"] or "غير محدد"
+            row["city"] = row["city"] or "غير محدد"
+        if not canonical_rows:
+            sheet_name = data.get("sheet_name", "unknown")
+            raise EmptyFileError(f"sheet '{sheet_name}'")
+        return canonical_rows
+
+    # --- Standard format validation ---
     column_map = _build_column_map(headers)
     missing = sorted(BASE_REQUIRED_COLUMNS - set(column_map))
     has_role_names = any(col in column_map for col in ROLE_NAME_COLUMNS)
@@ -274,10 +316,17 @@ def _choose_session_sheet(sheets, active_title):
     candidates = []
     for sheet in sheets:
         column_map = _build_column_map(sheet["headers"])
+        pivot_info = _detect_pivot_format(sheet["headers"])
         has_required = BASE_REQUIRED_COLUMNS <= set(column_map)
         has_role_name = any(col in column_map for col in ROLE_NAME_COLUMNS)
         score = sum(1 for col in CANONICAL_COLUMNS if col in column_map)
-        if has_required and has_role_name:
+
+        # A pivot-format sheet is a valid session sheet even without
+        # standard 'day' or coordinator name columns.
+        if pivot_info is not None:
+            pivot_score = score + len(pivot_info) * 2  # boost for each day pair found
+            candidates.append((sheet["name"] == active_title, pivot_score, sheet))
+        elif has_required and has_role_name:
             candidates.append((sheet["name"] == active_title, score, sheet))
 
     if candidates:
@@ -316,6 +365,75 @@ def _normalize_header(header) -> str:
     text = re.sub(r"[\u064b-\u065f\u0670ـ]", "", text)
     text = text.translate(str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه"}))
     return re.sub(r"[^a-z0-9\u0600-\u06ff]+", "", text)
+
+# ---------------------------------------------------------------------------
+# Pivot-table helpers
+# ---------------------------------------------------------------------------
+
+def _detect_pivot_format(headers):
+    """Detect if headers use the pivot-table format with day-column pairs.
+
+    Returns a list of (day_full_name, code_col_idx, name_col_idx) tuples
+    if at least _MIN_PIVOT_DAYS day pairs are found, otherwise None.
+    """
+    normalized = [_normalize_header(h) for h in headers]
+    day_pairs = []
+    for prefix, full_day in PIVOT_DAY_PREFIXES.items():
+        code_keys = {f"{prefix}code", prefix}
+        name_keys = {f"{prefix}name"}
+        code_idx = None
+        name_idx = None
+        for idx, norm in enumerate(normalized):
+            if norm in code_keys and code_idx is None:
+                code_idx = idx
+            elif norm in name_keys and name_idx is None:
+                name_idx = idx
+        if code_idx is not None and name_idx is not None:
+            day_pairs.append((full_day, code_idx, name_idx))
+
+    if len(day_pairs) >= _MIN_PIVOT_DAYS:
+        return day_pairs
+    return None
+
+
+def _unpivot_rows(headers, source_rows, pivot_info, column_map):
+    """Expand pivot-table rows into canonical session rows (one per day).
+
+    Each source row with N non-empty day pairs produces N canonical rows.
+    """
+    canonical_rows = []
+    for source_row in source_rows:
+        # Extract shared columns that are the same across all days
+        base = {key: "" for key in CANONICAL_COLUMNS}
+        for key, idx in column_map.items():
+            if key not in ("day", "main_coordinator", "main_code",
+                           "main_phone", "backup_coordinator",
+                           "backup_phone", "backup_code"):
+                base[key] = value_to_text(source_row[idx] if idx < len(source_row) else "")
+
+        # Extract room_code from center_code if it has a room suffix (e.g. BHR_C01_R1)
+        raw_center = base.get("center_code", "")
+        room_match = re.search(r'_(R\d+)$', raw_center, flags=re.IGNORECASE)
+        if room_match:
+            base["room_code"] = room_match.group(1)
+            base["center_code"] = raw_center[:room_match.start()]
+
+        # Expand each day-column pair into a separate row
+        for day_name, code_idx, name_idx in pivot_info:
+            coord_name = value_to_text(source_row[name_idx] if name_idx < len(source_row) else "")
+            coord_code = value_to_text(source_row[code_idx] if code_idx < len(source_row) else "")
+            # Skip days where no coordinator is assigned
+            if not coord_name and not coord_code:
+                continue
+            row = dict(base)
+            row["day"] = day_name
+            row["main_coordinator"] = coord_name
+            row["main_code"] = coord_code
+            # Phone / backup fields stay empty; they come from the directory
+            if not any(row.values()):
+                continue
+            canonical_rows.append(row)
+    return canonical_rows
 
 def _person_key(name) -> str:
     return re.sub(r"\s+", " ", value_to_text(name).strip()).casefold()

@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Database
+*.db
+
+# Test/temp files
+_test_*.xlsx
+test_students.xlsx
+out.txt
+test.json
+PyWhatKit_DB.txt
+_write_helper.py
+
+# Audio files
+audio/
+sounds/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Agents
+.agents/
+
+# Pytest
+.pytest_cache/

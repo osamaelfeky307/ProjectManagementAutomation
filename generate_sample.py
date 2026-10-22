@@ -1,5 +1,5 @@
 """
-Generate a sample Excel file for testing the DECI Automation app.
+Generate a sample Excel file for testing the Project Management Automation app.
 Run this once to create sample_sessions.xlsx.
 """
 import openpyxl

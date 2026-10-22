@@ -94,8 +94,9 @@ class MessageEngine:
                 if self._stop_event.is_set():
                     break
 
+                from template_utils import render_template, get_first_name
                 full_name = str(r.get("name", "")).strip()
-                first_name = full_name.split()[0] if full_name else ""
+                first_name = get_first_name(full_name)
                 
                 context = {
                     "name": first_name,
@@ -104,7 +105,6 @@ class MessageEngine:
                     "time": r.get("time", ""),
                     "day": r.get("day", ""),
                 }
-                from template_utils import render_template
                 # We can also pass gender if available in 'r' for instructors, but default is empty string
                 msg = render_template(template, context, gender=r.get("gender", ""))
                 ok, detail = self.send_message(r["phone"], msg)

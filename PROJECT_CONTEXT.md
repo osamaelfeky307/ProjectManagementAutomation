@@ -1,4 +1,4 @@
-# DECI Automation — Project Context
+# Project Management Automation — Project Context
 
 > **EYouth Coordination WhatsApp Messenger**  
 > A desktop Python application for automating WhatsApp communication with **instructors** and **coordinators** at eYouth training centers.
@@ -21,7 +21,7 @@
 
 ## Overview
 
-DECI Automation is a **dark-themed desktop GUI** (CustomTkinter) that lets eYouth coordinators:
+Project Management Automation is a **dark-themed desktop GUI** (CustomTkinter) that lets eYouth coordinators:
 
 1. **Load a session schedule** from an Excel file (`.xlsx`)
 2. **Send templated WhatsApp messages** to instructors and coordinators via [pywhatkit](https://github.com/Ankit404butfound/PyWhatKit) (which drives WhatsApp Web in the browser)
@@ -63,7 +63,7 @@ Coordinator workflow is handled by the separate `CoordinatorApp` window launched
 ## File Map
 
 ```
-DECIAutomation2/
+ProjectManagementAutomation/
 │
 ├── main.py                      # 🚀 Entry point — Instructor messaging App + TourGuide
 ├── app_config.py                # 🎨 Color palette, default templates, file paths
@@ -364,4 +364,4 @@ A coordinator is flagged as **conflicted** if they appear in two or more session
 
 ---
 
-*Generated: 2026-07-28 | DECI Automation v2*
+*Generated: 2026-07-28 | Project Management Automation v2*

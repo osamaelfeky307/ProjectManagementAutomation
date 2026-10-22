@@ -19,17 +19,24 @@ OUTPUT_ANALYSIS_FILE = "coordinator_slot_analysis.xlsx"
 OUTPUT_LOG_FILE = "whatsapp_sending_log.xlsx"
 COORDINATOR_TEMPLATES_FILE = os.path.join(os.path.dirname(__file__), "coordinator_templates.json")
 DEFAULT_COORDINATOR_CLOSING = (
-    "برجاء التواجد قبل المعاد بـ 30 دقيقة للتأكد من إن المركز شغال وإن كل حاجة جاهزة قبل بداية السيشن.\n\n"
-    "لو في أي مشكلة أو تعارض في المعاد، بلغنا فورًا.\n\n"
-    "شكرًا ليك."
+    "━━━━━━━━━━━━━━━━\n\n"
+    "📌 *تعليمات مهمة:*\n"
+    "• التواجد قبل الميعاد بـ *30 دقيقة* على الأقل.\n"
+    "• التأكد من إن المركز شغال وكل حاجة جاهزة قبل ما السيشن تبدأ.\n"
+    "• التأكد من إن *الرول أب* موجود على باب المكان.\n"
+    "• فور وصولك المكان، افتح *Live Location* وسيبها شغالة *طول اليوم* مش لمدة ساعة بس.\n"
+    "• لو في أي مشكلة أو تعارض، بلغنا *فورًا* ومتستناش.\n\n"
+    "شكراً على تعاونك 🙏"
 )
 DEFAULT_COORDINATOR_TEMPLATES = {
     "1. Coordinator Confirmation": (
-        "السلام عليكم يا {name}\n"
-        "ده تأكيد توزيع السيشنز الخاصة بيك:\n\n"
+        "السلام عليكم يا {name} 👋\n\n"
+        "ده تأكيد توزيع السيشنز الخاصة بيك.\n"
+        "برجاء المراجعة والتأكد من التفاصيل:\n\n"
         "{sections}\n\n"
         f"{DEFAULT_COORDINATOR_CLOSING}"
     ),
+    "1.5. Coordinator Confirmation 2": "{sections}",
     "2. Zoom Reminder": (
         "متنساش تفتح ميتنج الزووم في ميعاده بالظبط. لو في أي مشكلة واجهتك، بلغني فوراً."
     )
@@ -50,6 +57,34 @@ ARABIC_WEEKDAYS = {
     "friday": "الجمعة",
     "fri": "الجمعة",
 }
+# Chronological day ordering (Saturday-first week, standard in Egypt)
+DAY_ORDER = {
+    "saturday": 0, "sat": 0, "السبت": 0,
+    "sunday": 1, "sun": 1, "الأحد": 1,
+    "monday": 2, "mon": 2, "الإثنين": 2,
+    "tuesday": 3, "tue": 3, "الثلاثاء": 3,
+    "wednesday": 4, "wed": 4, "الأربعاء": 4,
+    "thursday": 5, "thu": 5, "الخميس": 5,
+    "friday": 6, "fri": 6, "الجمعة": 6,
+}
+
+def _day_sort_key(day_str):
+    """Return a numeric sort key for a day name (Saturday=0 .. Friday=6)."""
+    return DAY_ORDER.get(day_str.strip().casefold(), 99)
+
+def _time_sort_key(time_str):
+    """Parse a time string like '10:00 AM' or '2:30 PM' into minutes for sorting."""
+    text = value_to_text(time_str).strip().upper()
+    match = re.match(r'(\d{1,2}):(\d{2})\s*(AM|PM)?', text)
+    if not match:
+        return 9999  # unparseable times go last
+    hour, minute = int(match.group(1)), int(match.group(2))
+    ampm = match.group(3)
+    if ampm == 'PM' and hour != 12:
+        hour += 12
+    elif ampm == 'AM' and hour == 12:
+        hour = 0
+    return hour * 60 + minute
 
 def generate_coordinator_messages(rows, slot_price, main_limit, backup_limit, template_text=None):
     """Build one Arabic WhatsApp message per coordinator name + phone number."""
@@ -342,7 +377,7 @@ def _build_role_section(role_label, assignments):
         row = assignment["row"]
         grouped[(row["day"], row["area"], row["city"], row["center_name"], row.get("center_code", ""))].append(row)
 
-    for (day, area, city, center_name, _), rows in sorted(grouped.items()):
+    for (day, area, city, center_name, _), rows in sorted(grouped.items(), key=lambda item: _day_sort_key(item[0][0])):
         display_day = _arabic_day(day)
         lines.append(f"ليوم {display_day} في {area} ({city}) بـ {center_name}، والخاصة بالمجموعات التالية:")
         lines.append("")
@@ -353,23 +388,32 @@ def _build_role_section(role_label, assignments):
         for row in rows:
             by_time[row["time"]].append(row)
 
-        for slot_time, slot_rows in sorted(by_time.items()):
+        for slot_time, slot_rows in sorted(by_time.items(), key=lambda item: _time_sort_key(item[0])):
             lines.append(f"⏰ الساعة {slot_time}:")
             lines.append("")
             for group_code, room_code in _unique_pairs((r.get("group_code", ""), r.get("room_code", "")) for r in slot_rows):
                 lines.append(f"Group: {group_code} (Room: {room_code})")
             lines.append("")
-            lines.append("👥 المسؤولين عن المجموعات:")
-            lines.append("Coordinator: " + (_display_person_names(r.get("main_coordinator", "") for r in slot_rows) or "لم يتم تحديده"))
-            lines.append("Backup Coordinator: " + (_display_person_names(r.get("backup_coordinator", "") for r in slot_rows) or "لم يتم تحديده"))
-            lines.append("")
+
+        # Show coordinator names once per day/center, not per time slot
+        all_main = (r.get("main_coordinator", "") for r in rows)
+        all_backup = (r.get("backup_coordinator", "") for r in rows)
+        lines.append("👥 المسؤولين عن المجموعات:")
+        lines.append("Coordinator: " + (_display_person_names(all_main) or "لم يتم تحديده"))
+        lines.append("Backup Coordinator: " + (_display_person_names(all_backup) or "لم يتم تحديده"))
+        lines.append("")
     return "\n".join(lines)
 
 def _slot_key(row, role):
     return (role, row.get("day", ""), row.get("time", ""), _center_key(row))
 
+def _strip_room_suffix(code):
+    """Strip room suffix from center codes (e.g. BHR_C01_R1 -> BHR_C01)."""
+    return re.sub(r'_R\d+$', '', code.strip(), flags=re.IGNORECASE)
+
 def _center_key(row):
-    return row.get("center_code", "").strip() or row.get("center_name", "").strip()
+    code = row.get("center_code", "").strip()
+    return _strip_room_suffix(code) if code else row.get("center_name", "").strip()
 
 def _paid_slots(assignments):
     return {_slot_key(a["row"], a["role"]) for a in assignments}
@@ -445,6 +489,9 @@ def _rows_to_audit_df(rows):
             df[col] = df[col].astype(str).str.strip()
         else:
             df[col] = ""
+    # Normalized center code strips room suffix (e.g. BHR_C01_R1 -> BHR_C01)
+    # so different rooms in the same center are treated as one center.
+    df['center_norm'] = df['center_code'].apply(_strip_room_suffix)
     return df
 
 def calculate_slots_and_dues(rows, slot_price=250):
@@ -455,11 +502,11 @@ def calculate_slots_and_dues(rows, slot_price=250):
     
     orig_names = {}
     
-    main_df = df[['main_coordinator', 'center_code', 'day', 'time']].copy()
+    main_df = df[['main_coordinator', 'center_norm', 'day', 'time']].copy()
     main_df['role'] = 'main'
     main_df.rename(columns={'main_coordinator': 'coordinator'}, inplace=True)
     
-    backup_df = df[['backup_coordinator', 'center_code', 'day', 'time']].copy()
+    backup_df = df[['backup_coordinator', 'center_norm', 'day', 'time']].copy()
     backup_df['role'] = 'backup'
     backup_df.rename(columns={'backup_coordinator': 'coordinator'}, inplace=True)
     
@@ -478,7 +525,7 @@ def calculate_slots_and_dues(rows, slot_price=250):
         if row['coord_lower'] not in orig_names:
             orig_names[row['coord_lower']] = row['orig_name']
             
-    slots = stacked.drop_duplicates(subset=['coord_lower', 'role', 'center_code', 'day', 'time'])
+    slots = stacked.drop_duplicates(subset=['coord_lower', 'role', 'center_norm', 'day', 'time'])
     
     if slots.empty:
         return [], {"Total Slots": 0, "Total Amount (EGP)": 0}
@@ -526,10 +573,10 @@ def detect_strict_conflicts(rows):
     coord_conflicts = []
     room_conflicts = []
     
-    main_c = df[['main_coordinator', 'day', 'time', 'center_code']].copy()
+    main_c = df[['main_coordinator', 'day', 'time', 'center_norm']].copy()
     main_c.rename(columns={'main_coordinator': 'coordinator'}, inplace=True)
     
-    backup_c = df[['backup_coordinator', 'day', 'time', 'center_code']].copy()
+    backup_c = df[['backup_coordinator', 'day', 'time', 'center_norm']].copy()
     backup_c.rename(columns={'backup_coordinator': 'coordinator'}, inplace=True)
     
     all_c = pd.concat([main_c, backup_c], ignore_index=True)
@@ -537,9 +584,9 @@ def detect_strict_conflicts(rows):
     all_c.dropna(subset=['coordinator'], inplace=True)
     
     if not all_c.empty:
-        unique_c = all_c.drop_duplicates(subset=['coordinator', 'day', 'time', 'center_code'])
-        c_groups = unique_c.groupby(['coordinator', 'day', 'time'])['center_code'].apply(list).reset_index()
-        c_groups['center_count'] = c_groups['center_code'].apply(len)
+        unique_c = all_c.drop_duplicates(subset=['coordinator', 'day', 'time', 'center_norm'])
+        c_groups = unique_c.groupby(['coordinator', 'day', 'time'])['center_norm'].apply(list).reset_index()
+        c_groups['center_count'] = c_groups['center_norm'].apply(len)
         c_conflicts = c_groups[c_groups['center_count'] > 1]
         
         for _, row in c_conflicts.iterrows():
@@ -547,7 +594,7 @@ def detect_strict_conflicts(rows):
                 "Coordinator": row['coordinator'],
                 "Day": row['day'],
                 "Time": row['time'],
-                "Centers": row['center_code']
+                "Centers": row['center_norm']
             })
             
     r_groups = df.groupby(['center_code', 'room_code', 'day', 'time'])['group_code'].unique().reset_index()

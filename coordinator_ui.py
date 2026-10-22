@@ -9,7 +9,7 @@ from tkinter.scrolledtext import ScrolledText
 import customtkinter as ctk
 from app_config import COLORS as C
 from engine import MessageEngine
-from ui_components import StatusDot, StyledButton, StyledEntry, StyledTextbox, StyledOptionMenu, CardFrame, SidebarButton
+from ui_components import StatusDot, StyledButton, StyledEntry, StyledTextbox, StyledOptionMenu, CardFrame, SidebarButton, play_sound
 from collections import Counter, defaultdict
 from coordinator_parser import clean_phone_number, value_to_text, load_data, validate_columns, _person_key
 from file_errors import FileUploadError
@@ -165,7 +165,7 @@ class CoordinatorApp(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("DECI Automation - Coordinator Messages")
+        self.title("PM Automation - Coordinator Messages")
         self.geometry("1280x780")
         self.minsize(1100, 650)
         self.configure(fg_color=C["bg_dark"])
@@ -215,9 +215,21 @@ class CoordinatorApp(ctk.CTk):
         self._render_table()
 
     def _build_layout(self):
-        self.sidebar = ctk.CTkFrame(self, width=330, fg_color=C["bg_sidebar"], corner_radius=0)
-        self.sidebar.pack(side="left", fill="y")
-        self.sidebar.pack_propagate(False)
+        # Outer sidebar shell (fixed width, clips nothing)
+        sidebar_shell = ctk.CTkFrame(self, width=330, fg_color=C["bg_sidebar"], corner_radius=0)
+        sidebar_shell.pack(side="left", fill="y")
+        sidebar_shell.pack_propagate(False)
+
+        # Scrollable inner container — all sidebar widgets go here
+        self.sidebar = ctk.CTkScrollableFrame(
+            sidebar_shell,
+            fg_color=C["bg_sidebar"],
+            scrollbar_button_color=C["bg_card"],
+            scrollbar_button_hover_color=C["hover"],
+            corner_radius=0,
+            width=308,
+        )
+        self.sidebar.pack(fill="both", expand=True)
 
         ctk.CTkLabel(
             self.sidebar,
@@ -294,6 +306,7 @@ class CoordinatorApp(ctk.CTk):
         StyledButton(tpl_btns, text="Save", width=56, command=self._save_current_template).pack(side="left", padx=2)
         StyledButton(tpl_btns, text="New", width=52, color=C["success"], hover=C["status_green"], command=self._new_template).pack(side="left", padx=2)
         StyledButton(tpl_btns, text="Delete", width=64, color=C["danger"], hover="#991b1b", command=self._delete_template).pack(side="left", padx=2)
+        StyledButton(tpl_btns, text="🧪 Test", width=72, color="#7c3aed", hover="#6d28d9", command=self._test_template).pack(side="left", padx=2)
 
         tpl_btns2 = ctk.CTkFrame(tpl_frame, fg_color="transparent")
         tpl_btns2.pack(fill="x", padx=14, pady=(0, 14))
@@ -330,6 +343,16 @@ class CoordinatorApp(ctk.CTk):
             command=self._send_all,
         )
         self.send_all_btn.pack(anchor="w", padx=24, pady=(0, 10))
+        
+        self.retry_failed_btn = StyledButton(
+            self.sidebar,
+            text="⟳ Retry Failed",
+            width=250,
+            color=C["status_yellow"],
+            hover="#b45309",
+            command=self._retry_failed,
+        )
+        self.retry_failed_btn.pack(anchor="w", padx=24, pady=(0, 10))
 
         self.stop_btn = StyledButton(
             self.sidebar,
@@ -409,6 +432,14 @@ class CoordinatorApp(ctk.CTk):
             color=C["accent_cyan"],
             hover=C["accent_blue"],
             command=self._send_all,
+        ).pack(side="left", padx=6, pady=6)
+        StyledButton(
+            toolbar,
+            text="⟳ Retry Failed",
+            width=116,
+            color=C["status_yellow"],
+            hover="#b45309",
+            command=self._retry_failed,
         ).pack(side="left", padx=6, pady=6)
         StyledButton(
             toolbar,
@@ -735,6 +766,87 @@ class CoordinatorApp(ctk.CTk):
             return
         self._regenerate_messages()
 
+    def _test_template(self):
+        """Render the current template with dummy data for Osama and show a preview popup with an optional send."""
+        TEST_NAME = "Osama"
+        TEST_PHONE = "201062337475"
+        dummy_sections = (
+            "دورك كـ Coordinator:\n\n"
+            "ليوم السبت في القاهرة (مدينة نصر) بـ مركز التجمع، والخاصة بالمجموعات التالية:\n\n"
+            "📅 مواعيد يوم السبت:\n\n"
+            "⏰ الساعة 10:00 AM:\n\n"
+            "Group: GRP-001 (Room: A1)\n\n"
+            "👥 المسؤولين عن المجموعات:\n"
+            "Coordinator: Osama\n"
+            "Backup Coordinator: Ahmed\n"
+        )
+        from coordinator_logic import _render_template, _apply_gender_text
+        raw_tpl = self._get_template_text()
+        if not raw_tpl:
+            messagebox.showwarning("Empty Template", "The template editor is empty.", parent=self)
+            return
+        placeholders = {
+            "name": TEST_NAME,
+            "first_name": TEST_NAME,
+            "full_name": TEST_NAME,
+            "gender": "male",
+            "bek": "بيك",
+            "leek": "ليك",
+            "recipient_suffix": "",
+            "sections": dummy_sections,
+            "main_section": dummy_sections,
+            "backup_section": "",
+            "closing": "",
+        }
+        rendered = _apply_gender_text(_render_template(raw_tpl, placeholders, gender="male"), "male")
+
+        prev = ctk.CTkToplevel(self)
+        prev.title("🧪 Template Preview")
+        prev.geometry("620x560")
+        prev.configure(fg_color=C["bg_dark"])
+        prev.transient(self)
+        prev.grab_set()
+
+        ctk.CTkLabel(
+            prev,
+            text=f"Preview — sending to: {TEST_NAME}  ({TEST_PHONE})",
+            text_color=C["text_secondary"],
+            font=ctk.CTkFont(size=12),
+        ).pack(anchor="w", padx=18, pady=(14, 4))
+
+        preview_box = StyledTextbox(prev, fg_color=C["bg_input"], wrap="word")
+        preview_box.pack(fill="both", expand=True, padx=18, pady=(0, 10))
+        preview_box.insert("1.0", rendered)
+        preview_box.configure(state="disabled")
+
+        def send_test():
+            if not messagebox.askyesno(
+                "Send Test",
+                f"Send this template to {TEST_NAME} ({TEST_PHONE}) on WhatsApp?",
+                parent=prev,
+            ):
+                return
+            try:
+                engine = MessageEngine(min_delay=5, max_delay=8)
+                ok, detail = engine.send_message(TEST_PHONE, rendered)
+                if ok:
+                    messagebox.showinfo("Sent ✅", f"Test message sent to {TEST_PHONE}.", parent=prev)
+                else:
+                    messagebox.showerror("Failed ❌", f"Could not send:\n{detail}", parent=prev)
+            except Exception as exc:
+                messagebox.showerror("Error", str(exc), parent=prev)
+
+        btn_row = ctk.CTkFrame(prev, fg_color="transparent")
+        btn_row.pack(fill="x", padx=18, pady=(0, 16))
+        StyledButton(
+            btn_row, text="📤 Send to WhatsApp", width=164,
+            color=C["success"], hover=C["status_green"], command=send_test,
+        ).pack(side="left", padx=(0, 6))
+        StyledButton(
+            btn_row, text="Close", width=82,
+            color=C["bg_input"], hover=C["hover"], command=prev.destroy,
+        ).pack(side="left")
+
     def _open_template_dialog(self):
         dlg = ctk.CTkToplevel(self)
         dlg.title("Coordinator Templates")
@@ -833,6 +945,85 @@ class CoordinatorApp(ctk.CTk):
             if self.sessions_file and self.coordinators_file:
                 self._regenerate_messages()
 
+        def test_template():
+            TEST_NAME = "Osama"
+            TEST_PHONE = "201062337475"
+            dummy_sections = (
+                "دورك كـ Coordinator:\n\n"
+                "ليوم السبت في القاهرة (مدينة نصر) بـ مركز التجمع، والخاصة بالمجموعات التالية:\n\n"
+                "📅 مواعيد يوم السبت:\n\n"
+                "⏰ الساعة 10:00 AM:\n\n"
+                "Group: GRP-001 (Room: A1)\n\n"
+                "👥 المسؤولين عن المجموعات:\n"
+                "Coordinator: Osama\n"
+                "Backup Coordinator: Ahmed\n"
+            )
+            from coordinator_logic import _render_template, _apply_gender_text
+            raw_tpl = editor.get("1.0", "end").strip()
+            if not raw_tpl:
+                messagebox.showwarning("Empty Template", "The template editor is empty.", parent=dlg)
+                return
+            placeholders = {
+                "name": TEST_NAME,
+                "first_name": TEST_NAME,
+                "full_name": TEST_NAME,
+                "gender": "male",
+                "bek": "بيك",
+                "leek": "ليك",
+                "recipient_suffix": "",
+                "sections": dummy_sections,
+                "main_section": dummy_sections,
+                "backup_section": "",
+                "closing": "",
+            }
+            rendered = _apply_gender_text(_render_template(raw_tpl, placeholders, gender="male"), "male")
+
+            # ── Preview popup ──
+            prev = ctk.CTkToplevel(dlg)
+            prev.title("Template Preview")
+            prev.geometry("620x560")
+            prev.configure(fg_color=C["bg_dark"])
+            prev.transient(dlg)
+            prev.grab_set()
+
+            ctk.CTkLabel(
+                prev, text=f"Preview — will send to: {TEST_NAME} ({TEST_PHONE})",
+                text_color=C["text_secondary"], font=ctk.CTkFont(size=12),
+            ).pack(anchor="w", padx=18, pady=(14, 4))
+
+            preview_box = StyledTextbox(prev, fg_color=C["bg_input"], wrap="word")
+            preview_box.pack(fill="both", expand=True, padx=18, pady=(0, 10))
+            preview_box.insert("1.0", rendered)
+            preview_box.configure(state="disabled")
+
+            def send_test():
+                if not messagebox.askyesno(
+                    "Send Test",
+                    f"Send this template to {TEST_NAME} ({TEST_PHONE}) on WhatsApp?",
+                    parent=prev,
+                ):
+                    return
+                try:
+                    engine = MessageEngine(min_delay=5, max_delay=8)
+                    ok, detail = engine.send_message(TEST_PHONE, rendered)
+                    if ok:
+                        messagebox.showinfo("Sent ✅", f"Test message sent to {TEST_PHONE}.", parent=prev)
+                    else:
+                        messagebox.showerror("Failed ❌", f"Could not send message:\n{detail}", parent=prev)
+                except Exception as exc:
+                    messagebox.showerror("Error", str(exc), parent=prev)
+
+            btn_row = ctk.CTkFrame(prev, fg_color="transparent")
+            btn_row.pack(fill="x", padx=18, pady=(0, 16))
+            StyledButton(
+                btn_row, text="📤 Send to WhatsApp", width=160,
+                color=C["success"], hover=C["status_green"], command=send_test,
+            ).pack(side="left", padx=(0, 6))
+            StyledButton(
+                btn_row, text="Close", width=82,
+                color=C["bg_input"], hover=C["hover"], command=prev.destroy,
+            ).pack(side="left")
+
         menu.configure(command=load_selected)
         load_selected()
 
@@ -842,27 +1033,217 @@ class CoordinatorApp(ctk.CTk):
         StyledButton(btns, text="New", width=82, color=C["success"], hover=C["status_green"], command=new_template).pack(side="left", padx=3)
         StyledButton(btns, text="Delete", width=88, color=C["danger"], hover="#991b1b", command=delete_template).pack(side="left", padx=3)
         StyledButton(btns, text="Reset Defaults", width=126, color=C["text_muted"], hover=C["hover"], command=reset_templates).pack(side="left", padx=3)
+        StyledButton(btns, text="🧪 Test", width=82, color="#7c3aed", hover="#6d28d9", command=test_template).pack(side="left", padx=3)
         StyledButton(btns, text="Save + Regenerate", width=150, color=C["accent_cyan"], hover=C["accent_blue"], command=regenerate).pack(side="right", padx=3)
         StyledButton(btns, text="Close", width=82, color=C["bg_input"], hover=C["hover"], command=dlg.destroy).pack(side="right", padx=3)
 
+
     def _upload_files(self):
+        # ── Step 1: Guide user to select sessions file ──
+        self.status_var.set("Step 1/2: Select the sessions file...")
+        self.update_idletasks()
+
+        messagebox.showinfo(
+            "Step 1 of 2 — Sessions File",
+            "First, select the SESSIONS file.\n\n"
+            "This is the Excel/CSV file that contains the session schedule with columns like:\n"
+            "  • Group Code, Center Name, Day, Time\n"
+            "  • Main Coordinator, Backup Coordinator\n"
+            "  • Phone numbers (if available in the same file)",
+            parent=self,
+        )
+
         sessions_file = filedialog.askopenfilename(
             parent=self,
-            title="Choose sessions Excel or CSV file",
+            title="Step 1/2 — Choose SESSIONS file",
             filetypes=[("Excel or CSV", "*.xlsx *.xlsm *.csv"), ("Excel", "*.xlsx *.xlsm"), ("CSV", "*.csv")],
         )
         if not sessions_file:
+            self.status_var.set("Upload cancelled.")
             return
+
+        # ── Step 2: Guide user to select coordinators data file ──
+        self.status_var.set("Step 2/2: Select the coordinators data file (optional)...")
+        self.update_idletasks()
+
+        messagebox.showinfo(
+            "Step 2 of 2 — Coordinators Data File (Optional)",
+            "Now, select the COORDINATORS DATA file.\n\n"
+            "This is a separate file that maps coordinator names to phone numbers.\n"
+            "It should have columns like:\n"
+            "  • Coordinator Name\n"
+            "  • Phone Number\n\n"
+            "If your sessions file already contains phone numbers for both\n"
+            "Main and Backup coordinators, you can click CANCEL to skip this step.",
+            parent=self,
+        )
+
         coordinators_file = filedialog.askopenfilename(
             parent=self,
-            title="Choose coordinators data Excel or CSV file (Optional)",
+            title="Step 2/2 — Choose COORDINATORS DATA file (or Cancel to skip)",
             filetypes=[("Excel or CSV", "*.xlsx *.xlsm *.csv"), ("Excel", "*.xlsx *.xlsm"), ("CSV", "*.csv")],
         )
 
+        # ── Show progress dialog while processing ──
         self.sessions_file = sessions_file
         self.coordinators_file = coordinators_file
         self.output_dir = os.path.dirname(sessions_file)
-        self._regenerate_messages()
+
+        progress_dlg = ctk.CTkToplevel(self)
+        progress_dlg.title("Processing Files")
+        progress_dlg.geometry("420x200")
+        progress_dlg.resizable(False, False)
+        progress_dlg.configure(fg_color=C["bg_dark"])
+        progress_dlg.transient(self)
+        progress_dlg.grab_set()
+
+        ctk.CTkLabel(
+            progress_dlg, text="📂 Processing uploaded files...",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=C["text_primary"],
+        ).pack(pady=(24, 8))
+
+        progress_step = ctk.CTkLabel(
+            progress_dlg, text="Reading sessions file...",
+            font=ctk.CTkFont(size=12),
+            text_color=C["text_secondary"],
+        )
+        progress_step.pack(pady=(0, 12))
+
+        progress_bar = ctk.CTkProgressBar(progress_dlg, width=360, progress_color=C["accent_blue"])
+        progress_bar.pack(pady=(0, 16))
+        progress_bar.set(0.1)
+        progress_dlg.update_idletasks()
+
+        # Process in steps with visual feedback
+        try:
+            progress_step.configure(text="Reading and validating files...")
+            progress_bar.set(0.3)
+            progress_dlg.update_idletasks()
+
+            slot_price = self._get_float(self.slot_price_var, DEFAULT_SLOT_PRICE)
+            main_limit = self._get_int(self.main_limit_var, DEFAULT_MAIN_LIMIT)
+            backup_limit = self._get_int(self.backup_limit_var, DEFAULT_BACKUP_LIMIT)
+            data = load_data(self.sessions_file, self.coordinators_file)
+            self.rows = validate_columns(data)
+
+            progress_step.configure(text="Generating coordinator messages...")
+            progress_bar.set(0.6)
+            progress_dlg.update_idletasks()
+
+            messages, skipped_logs = generate_coordinator_messages(
+                self.rows, slot_price, main_limit, backup_limit,
+                self._get_template_text(),
+            )
+            self.analysis = calculate_slot_analysis(self.rows, slot_price, main_limit, backup_limit)
+            self.conflicts = detect_conflicts(self.rows, main_limit, backup_limit)
+            self.strict_analysis, self.strict_totals = calculate_slots_and_dues(self.rows, slot_price)
+            self.strict_conflicts = detect_strict_conflicts(self.rows)
+
+            progress_step.configure(text="Building results...")
+            progress_bar.set(0.9)
+            progress_dlg.update_idletasks()
+
+        except FileUploadError as exc:
+            progress_dlg.destroy()
+            messagebox.showerror(
+                exc.title,
+                exc.message + ("\n\n" + "\n".join(f"• {s}" for s in exc.suggestions) if exc.suggestions else ""),
+                parent=self,
+            )
+            self.status_var.set(f"Import failed: {exc.title}")
+            return
+        except Exception as exc:
+            progress_dlg.destroy()
+            messagebox.showerror(
+                "Coordinator Import Error",
+                f"An unexpected error occurred while processing the files:\n\n{exc}\n\n"
+                f"If this keeps happening, check that the files are valid and not open in another program.",
+                parent=self,
+            )
+            self.status_var.set(f"Import failed: {exc}")
+            return
+
+        # ── Success ──
+        progress_step.configure(text="Done! ✅")
+        progress_bar.set(1.0)
+        progress_bar.configure(progress_color=C["status_green"])
+        progress_dlg.update_idletasks()
+        import time as _time
+        _time.sleep(0.4)
+        progress_dlg.destroy()
+
+        self.messages = []
+        for msg in messages:
+            item = dict(msg)
+            item["Selected"] = False
+            item["Status"] = COORD_STATUS_READY
+            item["Error"] = ""
+            self.messages.append(item)
+
+        self.log_rows = list(skipped_logs)
+        self.upload_summary_text = self._build_upload_summary(skipped_logs)
+        self._file_label.configure(
+            text=f"Sessions:\n{os.path.basename(self.sessions_file)}\n\nCoordinators:\n{os.path.basename(self.coordinators_file) if self.coordinators_file else 'None (using session file)'}"
+        )
+        conflict_note = f" | Conflicts: {len(self.conflicts)}" if self.conflicts else ""
+        skipped_note = f" | Skipped: {len(skipped_logs)}" if skipped_logs else ""
+        self.status_var.set(f"✅ Generated {len(self.messages)} coordinator messages.{conflict_note}{skipped_note}")
+        self._render_table()
+        self._refresh_stats()
+        if self.messages:
+            self._show_message_in_preview(0)
+
+        # Show success summary
+        success_msg = (
+            f"✅ Files loaded successfully!\n\n"
+            f"📄 Sessions: {os.path.basename(self.sessions_file)}\n"
+            f"📇 Coordinators: {os.path.basename(self.coordinators_file) if self.coordinators_file else 'None (using session file)'}\n\n"
+            f"📊 Results:\n"
+            f"  • {len(self.messages)} coordinator messages generated\n"
+            f"  • {len(self.rows)} session rows processed\n"
+        )
+        if skipped_logs:
+            success_msg += f"  • {len(skipped_logs)} coordinators skipped (missing/invalid phone)\n"
+        if self.conflicts:
+            success_msg += f"  • ⚠️ {len(self.conflicts)} scheduling conflicts detected\n"
+
+        messagebox.showinfo("Upload Complete ✅", success_msg, parent=self)
+
+        self._show_upload_summary_if_needed()
+        if self.conflicts:
+            self._show_conflicts()
+
+        save_for_later = messagebox.askyesno("Save Sessions", "Do you want to save these sessions in the database for later?\n(If No, they will be deleted when you close the app)", parent=self)
+
+        if save_for_later:
+            from datetime import date
+            today_str = date.today().strftime("%Y-%m-%d")
+            target_date = simpledialog.askstring("Save Sessions", "Enter the target date (e.g., Friday 24 Oct, or 2026-07-29):", initialvalue=today_str, parent=self)
+            if not target_date or not target_date.strip():
+                target_date = "Temporary"
+            else:
+                target_date = target_date.strip()
+        else:
+            target_date = "Temporary"
+
+        state_dict = {
+            "rows": self.rows,
+            "messages": self.messages,
+            "analysis": self.analysis,
+            "log_rows": self.log_rows,
+            "conflicts": self.conflicts,
+            "upload_summary_text": self.upload_summary_text,
+            "strict_analysis": self.strict_analysis,
+            "strict_totals": self.strict_totals,
+            "strict_conflicts": self.strict_conflicts,
+            "sessions_file": self.sessions_file,
+            "coordinators_file": self.coordinators_file
+        }
+        import db_manager
+        db_manager.save_coordinator_state(target_date, state_dict)
+        self._update_date_menu()
+        self.date_filter_var.set(target_date)
 
     def _regenerate_messages(self):
         try:
@@ -1176,8 +1557,18 @@ class CoordinatorApp(ctk.CTk):
     def _send_all(self):
         targets = [i for i, msg in enumerate(self.messages) if msg.get("Status") != COORD_STATUS_SENT]
         if not targets:
-            messagebox.showinfo("Done", "All coordinator messages are already sent.", parent=self)
+            messagebox.showinfo("Done", "No unsent messages.", parent=self)
             return
+        self._send_targets(targets)
+        
+    def _retry_failed(self):
+        targets = [i for i, msg in enumerate(self.messages) if msg.get("Status") == COORD_STATUS_FAILED]
+        if not targets:
+            messagebox.showinfo("Done", "No failed messages to retry.", parent=self)
+            return
+        for i in targets:
+            self.messages[i]["Status"] = ""
+            self._set_message_status(i, "", "")
         self._send_targets(targets)
 
     def _send_targets(self, indexes):
@@ -1254,8 +1645,12 @@ class CoordinatorApp(ctk.CTk):
             error = "" if ok else detail
 
             if ok:
+                try: play_sound("success")
+                except: pass
                 sent_ok += 1
             else:
+                try: play_sound("error")
+                except: pass
                 sent_failed += 1
             processed += 1
 
@@ -1285,12 +1680,22 @@ class CoordinatorApp(ctk.CTk):
         sent = sum(1 for m in self.messages if m.get("Status") == COORD_STATUS_SENT)
         failed = sum(1 for m in self.messages if m.get("Status") == COORD_STATUS_FAILED)
         skipped = sum(1 for m in self.messages if m.get("Status") == COORD_STATUS_SKIPPED)
+        
+        try:
+            if stopped or failed > 0:
+                play_sound("batch_warn")
+            else:
+                play_sound("batch_success")
+        except Exception:
+            pass
+            
         if stopped:
             self._update_status_color("warn")
             self.status_var.set(f"Sending stopped \u2014 Sent: {sent} | Failed: {failed} | Skipped: {skipped}")
         else:
             self._update_status_color("success")
             self.status_var.set(f"Batch complete \u2014 Sent: {sent} | Failed: {failed} | Skipped: {skipped}")
+            self._notify_batch_complete(total=sent+failed+skipped, sent_ok=sent)
             messagebox.showinfo(
                 "Batch Complete",
                 f"Coordinator batch complete.\nSent: {sent} | Failed: {failed} | Skipped: {skipped}\n\nStatuses and logs are available inside the app.",
@@ -1309,6 +1714,41 @@ class CoordinatorApp(ctk.CTk):
         state = "normal" if enabled else "disabled"
         self.send_selected_btn.configure(state=state)
         self.send_all_btn.configure(state=state)
+        if hasattr(self, 'retry_failed_btn'):
+            self.retry_failed_btn.configure(state=state)
+            
+    def _notify_batch_complete(self, total: int, sent_ok: int):
+        failed = total - sent_ok
+        title = "DECI Coordinator — Batch Complete"
+
+        if failed == 0:
+            msg = f"All {total} coordinator messages sent successfully."
+        else:
+            msg = f"{sent_ok}/{total} messages sent. {failed} failed."
+
+        import threading
+        def run_toast():
+            try:
+                try:
+                    from plyer import notification
+                    notification.notify(title=title, message=msg, app_name="PM Automation", timeout=8)
+                    return
+                except ImportError:
+                    pass
+                import subprocess
+                ps_script = f"""
+                [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+                [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+                [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+                $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+                $xml.LoadXml("<toast><visual><binding template='ToastText02'><text id='1'>{{title}}</text><text id='2'>{{msg}}</text></binding></visual></toast>")
+                $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+                [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("PM Automation").Show($toast)
+                """.replace('{{title}}', title).replace('{{msg}}', msg)
+                subprocess.run(["powershell", "-Command", ps_script], creationflags=subprocess.CREATE_NO_WINDOW)
+            except Exception:
+                pass
+        threading.Thread(target=run_toast, daemon=True).start()
 
     def _set_message_status(self, idx, status, error=""):
         if idx >= len(self.messages):

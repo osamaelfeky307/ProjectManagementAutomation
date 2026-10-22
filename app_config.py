@@ -1,5 +1,5 @@
 """
-Configuration and constants for DECI Automation App.
+Configuration and constants for Project Management Automation App.
 """
 import json
 import os
